@@ -106,3 +106,7 @@ From 1 February 2027, the Bank of Pixel City runs in the Exchange's daily step a
 `PixelUniverse.bank` (from this `universe.js`): `stateAt(t)` (rate, capital, appetite, deposits, the book by kind and district, sector risk, biggest borrowers), `historyBetween`, `eventsBetween` (source `bank`: `bank.opened`, `bank.rate`, `bank.default`, `bank.squeeze`, `bank.eases`, `bank.capital`, `bank.arrears`). The Bank's own site is at `dvexperiments.github.io/Bank/`.
 
 From 1 March 2027 the Exchange reads City's glitches (corrupted and frozen districts make less, patch shops are mobbed during and for three days after, palette shops do well in a bleed, frozen districts get no deliveries, a leak at the dock eats 30% of the raw colour in store) and Society's migration (a district's shops sell to the pixels who still live there). It records staff by district each day (`staffD`), which Society's migration reads.
+
+## Rents (from 1 June 2027)
+
+Each district's rent follows how many of its premises are trading and how many pixels still live there, moving over a season. A district in decline gets cheap: businesses there pay less (in their costs and their prices), empty premises find takers sooner, and Society's migration draws new residents to cheap districts. A full, booming district gets dear. Rents are recorded daily (`rentD` in `historyBetween`); a district whose rents fall 15% makes the news (`market.rents`).

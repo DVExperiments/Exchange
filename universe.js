@@ -24,7 +24,7 @@
 (function (root) {
   'use strict';
 
-  const VERSION = '1.4.0';
+  const VERSION = '1.5.0';
   const MIN = 60000, H = 3600000, DAY = 86400000;
   const START = Date.UTC(2025, 11, 3); // the first trading day: the first Daily Crawl
 
@@ -223,7 +223,7 @@
   // efficiency, appetite for a price war, reputation, the margin it has been making, days in loss, and what it sold.
   const FIELDS = ['loan', 'sf', 'util', 'patience', 'price', 'staff', 'cash', 'q', 'eff', 'aggr', 'rep', 'margin', 'loss', 'sales', 'rev', 'profit', 'open', 'gen', 'since', 'reopen', 'credit', 'supply'];
   function blank(N) { const s = {}; for (const f of FIELDS) s[f] = new Float64Array(N); return s; }
-  function clone(s) { const c = {}; for (const f of FIELDS) c[f] = s[f].slice(); for (const k of ['k', 'conf', 'importIdx', 'world', 'mkPrice', 'mkOut', 'mkUnmet', 'mkDemand', 'shopUnits', 'factoryUnits', 'revOther', 'closures7', 'cargoAvg', 'raw', 'dock', 'shelf', 'haulR', 'distR', 'bufR', 'fOn', 'exportShare', 'bOn', 'bRate', 'bCapital', 'bDeposits', 'bMort', 'bArr', 'bRisk', 'bApp', 'bIncome', 'bWO', 'bEmp0', 'bMort0']) c[k] = s[k] && s[k].slice ? s[k].slice() : s[k]; return c; }
+  function clone(s) { const c = {}; for (const f of FIELDS) c[f] = s[f].slice(); for (const k of ['k', 'conf', 'importIdx', 'world', 'mkPrice', 'mkOut', 'mkUnmet', 'mkDemand', 'shopUnits', 'factoryUnits', 'revOther', 'closures7', 'cargoAvg', 'raw', 'dock', 'shelf', 'haulR', 'distR', 'bufR', 'fOn', 'exportShare', 'rentIdx', 'bOn', 'bRate', 'bCapital', 'bDeposits', 'bMort', 'bArr', 'bRisk', 'bApp', 'bIncome', 'bWO', 'bEmp0', 'bMort0']) c[k] = s[k] && s[k].slice ? s[k].slice() : s[k]; return c; }
 
   function newOccupant(s, R, i, k, gen, mkPrice) {
     const p = R.prem[i], r = seeded('firm:' + p.id + ':' + gen);
@@ -254,7 +254,7 @@
     const C = City(), m0 = C.map(Date.UTC(2026, 10, 2));
     const st = m0.features.find((f) => f.type === 'stadium'); if (st) STADIUM_DISTRICT = st.district;
     const s = blank(R.N);
-    s.k = 0; s.conf = 1; s.cargoAvg = 2; s.fOn = 0; s.raw = 0; s.dock = 0; s.shelf = new Float64Array(16); s.haulR = 1; s.distR = 1; s.bufR = 1; s.exportShare = 0.6; s.importIdx = 1; s.world = 1;
+    s.k = 0; s.conf = 1; s.cargoAvg = 2; s.rentIdx = new Float64Array(16).fill(1); s.fOn = 0; s.raw = 0; s.dock = 0; s.shelf = new Float64Array(16); s.haulR = 1; s.distR = 1; s.bufR = 1; s.exportShare = 0.6; s.importIdx = 1; s.world = 1;
     s.mkPrice = new Float64Array(R.M); s.mkOut = new Float64Array(R.M); s.mkUnmet = new Float64Array(R.M); s.mkDemand = new Float64Array(R.M);
     for (const mk of R.markets) { s.mkPrice[mk.i] = mk.P0; s.mkOut[mk.i] = mk.base; s.mkDemand[mk.i] = mk.base; }
     s.shopUnits = 1; s.factoryUnits = 1; s.revOther = 1; s.closures7 = new Float64Array(7);
@@ -345,7 +345,7 @@
       const unitInputs = inputCost[p.kind] * p.P0;
       const labour = workers * p.wage;
       const power = K.power * p.P0 * x.powerIdx * (0.3 * p.capacity * staff[i] + 0.7 * sold);
-      const rent = K.rent * p.P0 * p.capacity * p.rentK;
+      const rent = K.rent * p.P0 * p.capacity * p.rentK * s.rentIdx[p.district];
       const interestI = s.bOn ? bankInterest(s, i, p, K) : 0; // what the Bank charges on the overdraft and any loan
       const profitI = revI - labour - power - rent - unitInputs * sold - interestI;
       rev[i] = revI; profit[i] = profitI; cash[i] += profitI;
@@ -356,7 +356,7 @@
       const ri = r();
       // each business aims for its costs at a normal day's trade plus its own markup (the bold ones take less, to win
       // customers), then leans on that: up when sold out with customers turned away, down when goods sit unsold
-      const normalCost = p.wage / (eff[i] * hi(0.3, sf[i])) + K.power * p.P0 * x.powerIdx + unitInputs + K.rent * p.P0 * p.rentK / eff[i];
+      const normalCost = p.wage / (eff[i] * hi(0.3, sf[i])) + K.power * p.P0 * x.powerIdx + unitInputs + K.rent * p.P0 * p.rentK * s.rentIdx[p.district] / eff[i];
       // when customers are being turned away, everyone can charge more: the scarcer, the dearer
       const scarce = u > 0.85 ? lo(0.6, mkUnmet[p.market] * (1.2 - 0.6 * aggr[i])) : 0;
       price[i] += (normalCost * (1.06 + 0.16 * (1 - aggr[i])) * (1 + scarce) - price[i]) * 0.04;
@@ -378,7 +378,7 @@
         open[i] = 0; closures++;
         // nobody rushes to open in a market that's going nowhere: the weaker demand is, the longer premises stay empty
         const health = mkDemand[p.market] / R.markets[p.market].base;
-        reopen[i] = k + 14 + Math.floor(r() * (30 + 240 * clamp(1.15 - health, 0, 0.8)) * (s.bOn ? 1 + 1.5 * clamp(1 - s.bApp, 0, 0.85) : 1)); // no loan, no opening
+        reopen[i] = k + 14 + Math.floor(r() * (30 + 240 * clamp(1.15 - health, 0, 0.8)) * (s.bOn ? 1 + 1.5 * clamp(1 - s.bApp, 0, 0.85) : 1) * s.rentIdx[p.district]); // cheap premises find takers sooner // no loan, no opening
         if (s.bOn) bankWriteOff(s, i, p, k, record);
         if (record) {
           const occ = RUN.occupants[i][RUN.occupants[i].length - 1];
@@ -428,13 +428,13 @@
         if (RUN.officeUn > 0.1 && k - (RUN.cool.office || -999) > 45) { RUN.cool.office = k; emit('market.shortage', 2, 'short:office:' + ymd(dayStart(k)), { market: 'Office services', unmet: rd(un * 100, 1) },
           'The city\u2019s offices are turning work away: ' + Math.round(un * 100) + '% of orders for typesetting, alignment and colour advice go unfilled', 2); } }
       let nOpen = 0, nStaff = 0;
-      const staffD = new Float32Array(16);
+      const staffD = new Float32Array(16), rentD = Float32Array.from(s.rentIdx);
       for (let i = 0; i < N; i++) if (open[i]) { nOpen++; nStaff += R.prem[i].capacity * staff[i]; staffD[R.prem[i].district] += R.prem[i].capacity * staff[i]; }
       // a consumer price index: what a district's shopping basket costs, against the first day (100)
       let basket = 0, basket0 = 0;
       for (const mk of R.markets) if (mk.kind === 'shop') { basket += mk.base * mkPrice[mk.i]; basket0 += mk.base * mk.P0; }
       RUN.days.push({ k, day: dayStart(k), date: x.date, conf: rd(s.conf * 100, 10), cpi: rd(basket / basket0 * 100, 10), power: rd(x.powerIdx * 100, 1), imports: rd(s.importIdx * 100, 1), world: rd(s.world * 100, 1),
-        open: nOpen, staff: Math.round(nStaff), staffD, closures, margin: rd(cityMargin * 100, 10), revenue: Math.round(revSum), profit: Math.round(profitSum),
+        open: nOpen, staff: Math.round(nStaff), staffD, rentD, closures, margin: rd(cityMargin * 100, 10), revenue: Math.round(revSum), profit: Math.round(profitSum),
         prices: Float64Array.from(s.mkPrice), output: Float64Array.from(s.mkOut), unmet: Float64Array.from(s.mkUnmet), demand: Float64Array.from(s.mkDemand) });
       // the monthly ledger: each occupant's revenue, profit, staff and cash at the end of each calendar month
       const L = RUN.ledgerMonth || (RUN.ledgerMonth = { month: monthOf(dayStart(k)), rev: new Float64Array(N), profit: new Float64Array(N), units: new Float64Array(N), days: new Float64Array(N) });
@@ -643,6 +643,28 @@
       arrears: rd(arrears * 100, 10), districts: Array.from(m2, (v, d) => ({ mortgages: Math.round(v), arrears: rd(a2[d] * 100, 10) })), risk: Array.from(s.bRisk, (v) => rd(v * 100, 10)) });
   }
 
+  // ================================================================ rents (from 1 June 2027)
+  // Each district's rent follows how many of its premises are trading and how many pixels still live there. A district
+  // in decline gets cheap: businesses there pay less, empty premises find takers sooner, and (in Society) cheap rents
+  // draw new residents back. A booming, full district gets dear. Rents move slowly, over a season.
+  const RENT_START = Date.UTC(2027, 5, 1);
+  function rentDay(s, x, k, record) {
+    const R = RUN.R, open = new Float64Array(16), all = new Float64Array(16);
+    for (let i = 0; i < R.N; i++) { const d = R.prem[i].district; all[d]++; if (s.open[i]) open[d]++; }
+    const r2 = s.rentIdx.slice();
+    for (let d = 0; d < 16; d++) {
+      const share = all[d] ? open[d] / all[d] : 1, pop = popOf(d, x.day);
+      const target = clamp(0.55 + 0.45 * share + 0.6 * (pop - 1) + (share > 0.995 && pop > 0.995 ? 0.1 : 0), 0.5, 1.15);
+      const was = r2[d]; r2[d] += (target - r2[d]) / 90;
+      if (record && was >= 0.85 && r2[d] < 0.85 && k - (RUN.cool['rent' + d] || -999) > 120) {
+        RUN.cool['rent' + d] = k;
+        RUN.events.push({ id: 'commerce:rents:' + d + ':' + ymd(dayStart(k)), time: iso(dayStart(k) + DAY + 58000), ms: dayStart(k) + DAY + 58000, source: 'commerce', type: 'market.rents', importance: 2,
+          data: { district: R.districts[d], rent: rd(r2[d] * 100, 1) }, headline: 'Rents in ' + R.districts[d] + ' have fallen by 15%: empty premises are going cheap, and the first takers are moving in' });
+      }
+    }
+    s.rentIdx = r2;
+  }
+
   // one trading day. record: whether this is the forward run (which keeps history and events) or a rebuild.
   function step(s, record) {
     const R = RUN.R, k = s.k, x = conditions(k), r = seeded('day:' + k), N = R.N, M = R.M;
@@ -708,6 +730,7 @@
     s.conf = s.conf + (target - s.conf) / 14 + (1 - s.conf) / 120;
     s.shopUnits = shopUnits / RUN.shopBase; s.factoryUnits = factoryUnits / RUN.factoryBase; s.revOther = revOther / RUN.revBase;
 
+    if (dayStart(k) >= RENT_START) rentDay(s, x, k, record);
     if (s.bOn) bankDay(s, x, k, record);
     if (record) phaseRecord(s, x, k, emit, dn, at, closures, profitSum, revSum, cityMargin);
     s.k = k + 1;
@@ -788,7 +811,7 @@
   function historyBetween(from, to) {
     if (!ready()) return [];
     const k1 = closedDays(to); advance(k1);
-    return RUN.days.filter((d) => d.day + DAY > from && d.day + DAY <= to).map((d) => ({ day: d.day, date: d.date, confidence: d.conf, cpi: d.cpi, powerIdx: d.power, importIdx: d.imports, worldIdx: d.world, open: d.open, staff: d.staff, staffD: d.staffD ? Array.from(d.staffD) : null, closures: d.closures, margin: d.margin, revenue: d.revenue, profit: d.profit }));
+    return RUN.days.filter((d) => d.day + DAY > from && d.day + DAY <= to).map((d) => ({ day: d.day, date: d.date, confidence: d.conf, cpi: d.cpi, powerIdx: d.power, importIdx: d.imports, worldIdx: d.world, open: d.open, staff: d.staff, staffD: d.staffD ? Array.from(d.staffD) : null, rentD: d.rentD ? Array.from(d.rentD) : null, closures: d.closures, margin: d.margin, revenue: d.revenue, profit: d.profit }));
   }
   function eventsBetween(from, to) {
     if (!ready()) return [];
