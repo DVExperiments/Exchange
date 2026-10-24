@@ -56,6 +56,20 @@ Trading days run 00:00 to 00:00 UTC (noon to noon, city time). Results are poste
 
 The run steps forward a day at a time, about 1 ms per trading day in a typical browser, and keeps a checkpoint every 30 days, so an earlier moment rebuilds from the nearest checkpoint.
 
+## Freight
+
+From the December Grand Prix (1 December 2026), goods are physical, and City's container ships carry them:
+
+- **Raw colour** arrives in container ships, in proportion to each ship's TEU, and waits in the cache at the export dock (room for 16 days). Packet haulage takes it to the Palette Refineries and Compression Works, which ration their output when less than two days' supply is left. Ships held outside the harbour by storms leave the store to run down.
+- **Sprites** sold beyond the margin wait at the export dock until a container ship sails, loaded by the buffer handlers. When the dock is nearly full, the Render Plants turn orders from beyond the margin away.
+- **The shelves**: every district's shops sell from about two days of stock, restocked on the data distribution rounds. Storms, heavy rain, blackouts in the district, Grand Prix crowds on the buses (worst around the stadium) and the Senate's traffic limits slow the rounds; a shortage of data distribution firms slows them everywhere. Shops can only sell what is on the shelves.
+
+Everything feeds back into the market: rationed refineries starve the texture foundries and render plants, empty shelves cut shops' takings, and the firms that make the rounds and load the ships live or die by the same market as everyone else.
+
+`PixelUniverse.freight` (from the same `universe.js`): `stateAt(t)` (raw colour in days, the export dock, haulage, distribution and loading capacity, every district's shelves, recent ships), `historyBetween`, `shipsBetween` (the shipping register: each ship's TEU, raw colour landed and sprites loaded) and `eventsBetween`, source `freight`: `freight.rawlow`, `freight.dockfull`, `freight.shelves`, `freight.arrival`.
+
+The Freight page shows the docks and the rounds, the shelves district by district, and the shipping register.
+
 ## Working lives (phase 2)
 
 From 1 December 2026, when working lives begin, the Census Office's careers follow the Exchange:

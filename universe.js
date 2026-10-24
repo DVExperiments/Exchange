@@ -24,7 +24,7 @@
 (function (root) {
   'use strict';
 
-  const VERSION = '1.1.0';
+  const VERSION = '1.2.0';
   const MIN = 60000, H = 3600000, DAY = 86400000;
   const START = Date.UTC(2025, 11, 3); // the first trading day: the first Daily Crawl
 
@@ -148,6 +148,10 @@
     const wx = chunk(wxCache, k, (a, b) => { const out = {}; for (const d of W.historyBetween(a, b)) out[d.day] = d; return out; })[d0] || {};
     const wy = chunk(wxCache, k - 1, (a, b) => { const out = {}; for (const d of W.historyBetween(a, b)) out[d.day] = d; return out; })[d0 - DAY] || {};
     const ch = chunk(cityCache, k, (a, b) => { const out = {}; for (const d of C.historyBetween(a, b)) out[d.day] = d; return out; })[d0] || null;
+    const shipsOn = (kk) => chunk(portCache, kk, (a, b) => { const out = {}; for (const s of C.portBetween(a, b - 1)) { const dd = s.arrive - (((s.arrive % DAY) + DAY) % DAY); (out[dd] = out[dd] || []).push(s); } return out; })[dayStart(kk)] || [];
+    const containers = shipsOn(k).filter((s) => s.type === 'container');
+    const departing = [];
+    for (let kk = k - 5; kk <= k; kk++) for (const s of shipsOn(kk)) if (s.type === 'container' && s.depart >= d0 && s.depart < d0 + DAY) departing.push(s);
     const ships = chunk(portCache, k, (a, b) => { const out = {}; for (const s of C.portBetween(a, b - 1)) { const dd = s.arrive - (((s.arrive % DAY) + DAY) % DAY); (out[dd] = out[dd] || []).push(s); } return out; })[d0] || [];
     let levels = {};
     try { levels = C.stateAt(d0 + 12 * H).levels || {}; } catch (e) { levels = {}; }
@@ -166,7 +170,7 @@
       k, day: d0, date: ymd(d0), month, weekend: wd === 0 || wd === 6, gp: new Date(d0).getUTCDate() === 1,
       max: wx.max === undefined ? 18 : wx.max, rain: wx.rain || 0, gust: wx.gust || 0, sunshine: wx.sunshine === undefined ? 6 : wx.sunshine, storm: !!wx.storm || wx.cat === 'stormy',
       stormYesterday: !!wy.storm || wy.cat === 'stormy' || (wy.rain || 0) > 40,
-      aqi: ch ? ch.aqi : 40, blackoutHours: ch ? ch.blackoutHours : 0, darkFrac, powerIdx, levels, cargo, held, portClosed: (wx.gust || 0) >= 88
+      aqi: ch ? ch.aqi : 40, blackoutHours: ch ? ch.blackoutHours : 0, darkFrac, powerIdx, levels, cargo, held, portClosed: (wx.gust || 0) >= 88, containers, departing
     };
   }
   // how much a district's pixels want from each kind of shop, today
@@ -196,7 +200,7 @@
   // efficiency, appetite for a price war, reputation, the margin it has been making, days in loss, and what it sold.
   const FIELDS = ['sf', 'util', 'patience', 'price', 'staff', 'cash', 'q', 'eff', 'aggr', 'rep', 'margin', 'loss', 'sales', 'rev', 'profit', 'open', 'gen', 'since', 'reopen', 'credit', 'supply'];
   function blank(N) { const s = {}; for (const f of FIELDS) s[f] = new Float64Array(N); return s; }
-  function clone(s) { const c = {}; for (const f of FIELDS) c[f] = s[f].slice(); for (const k of ['k', 'conf', 'importIdx', 'world', 'mkPrice', 'mkOut', 'mkUnmet', 'mkDemand', 'shopUnits', 'factoryUnits', 'revOther', 'closures7', 'cargoAvg']) c[k] = s[k] && s[k].slice ? s[k].slice() : s[k]; return c; }
+  function clone(s) { const c = {}; for (const f of FIELDS) c[f] = s[f].slice(); for (const k of ['k', 'conf', 'importIdx', 'world', 'mkPrice', 'mkOut', 'mkUnmet', 'mkDemand', 'shopUnits', 'factoryUnits', 'revOther', 'closures7', 'cargoAvg', 'raw', 'dock', 'shelf', 'haulR', 'distR', 'bufR', 'fOn', 'exportShare']) c[k] = s[k] && s[k].slice ? s[k].slice() : s[k]; return c; }
 
   function newOccupant(s, R, i, k, gen, mkPrice) {
     const p = R.prem[i], r = seeded('firm:' + p.id + ':' + gen);
@@ -227,7 +231,7 @@
     const C = City(), m0 = C.map(Date.UTC(2026, 10, 2));
     const st = m0.features.find((f) => f.type === 'stadium'); if (st) STADIUM_DISTRICT = st.district;
     const s = blank(R.N);
-    s.k = 0; s.conf = 1; s.cargoAvg = 2; s.importIdx = 1; s.world = 1;
+    s.k = 0; s.conf = 1; s.cargoAvg = 2; s.fOn = 0; s.raw = 0; s.dock = 0; s.shelf = new Float64Array(16); s.haulR = 1; s.distR = 1; s.bufR = 1; s.exportShare = 0.6; s.importIdx = 1; s.world = 1;
     s.mkPrice = new Float64Array(R.M); s.mkOut = new Float64Array(R.M); s.mkUnmet = new Float64Array(R.M); s.mkDemand = new Float64Array(R.M);
     for (const mk of R.markets) { s.mkPrice[mk.i] = mk.P0; s.mkOut[mk.i] = mk.base; s.mkDemand[mk.i] = mk.base; }
     s.shopUnits = 1; s.factoryUnits = 1; s.revOther = 1; s.closures7 = new Float64Array(7);
@@ -238,6 +242,7 @@
     RUN = { R, s, days: [], events: [], ledger: [], occupants: R.prem.map((p, i) => [{ gen: 0, name: p.name0, from: 0, to: -1, reason: '' }]), checkpoints: new Map(), shopBase, factoryBase, revBase,
       cool: {} };
     RUN.checkpoints.set(0, clone(s));
+    RUN.F = freightConstants(R); RUN.freightDays = []; RUN.ships = []; RUN.shipById = {};
   }
 
   function phaseSupply(s, x, lawCap) {
@@ -420,6 +425,103 @@
     }
   }
 
+  // ================================================================ freight: goods that have to get somewhere
+  // From the December Grand Prix, goods are physical. Raw colour arrives in container ships, in proportion to their
+  // cargo, and waits in the cache at the export dock until packet haulage takes it to the refineries and compression
+  // works. Sprites sold beyond the margin wait at the export dock until a container ship sails with them, loaded by the
+  // buffer handlers. Every district's shops sell from shelves that data distribution keeps stocked, round by round.
+  // Storms, blackouts, Grand Prix crowds on the buses and the Senate's traffic limits all slow the rounds; a shortage
+  // of haulage or distribution firms slows everything downstream.
+  const FREIGHT_START = Date.UTC(2026, 11, 1); // the December Grand Prix
+  function freightConstants(R) {
+    const C = City(), F = { shopNeed: new Float64Array(16) };
+    for (const mk of R.markets) if (mk.kind === 'shop') F.shopNeed[mk.district] += mk.base;
+    const base = (kind) => R.markets[R.goodsMk[kind]].base;
+    F.rawNeed = base('palettes') + base('codecs'); // one unit of raw colour per unit refined or compressed
+    F.exportNormal = 0.6 * base('sprites');
+    // what an ordinary half-year of container ships carries, to size a TEU of cargo
+    let teu = 0; for (const sh of C.portBetween(START, START + 180 * DAY)) if (sh.type === 'container') teu += sh.cargo;
+    F.teuPerDay = teu / 180;
+    F.rawPerTEU = F.rawNeed / F.teuPerDay;
+    F.exportPerTEU = F.exportNormal / F.teuPerDay * 1.2;
+    F.rawCap = 16 * F.rawNeed; F.dockCap = 14 * F.exportNormal;
+    return F;
+  }
+  function freightBegin(s) {
+    const F = RUN.F;
+    s.fOn = 1; s.raw = 10 * F.rawNeed; s.dock = 3 * F.exportNormal;
+    const sh = new Float64Array(16); for (let d = 0; d < 16; d++) sh[d] = 2 * F.shopNeed[d]; s.shelf = sh;
+  }
+  // what can be made and sold today, given what is in stock
+  function freightLimits(s) {
+    const R = RUN.R, F = RUN.F, { supply } = s;
+    const rawF = clamp(s.raw / (2 * F.rawNeed), 0, 1) * lo(1, s.haulR + 0.15); // refineries ration below two days' raw colour
+    const shelfF = new Float64Array(16);
+    for (let d = 0; d < 16; d++) shelfF[d] = F.shopNeed[d] > 0 ? clamp(s.shelf[d] / (1.5 * F.shopNeed[d]), 0, 1) : 1;
+    for (let i = 0; i < R.N; i++) {
+      const p = R.prem[i];
+      if (p.kind === 'palettes' || p.kind === 'codecs') supply[i] *= rawF;
+      else if (p.kind === 'shop') supply[i] *= shelfF[p.district];
+    }
+  }
+  const disruption = (x, d) => (x.storm ? 0.2 : x.rain > 25 ? 0.7 : 1) * (1 - x.darkFrac[d]) * (x.gp ? (d === STADIUM_DISTRICT ? 0.5 : 0.9) : 1) * (1 - 0.06 * (x.levels['policy.trafficLimits'] || 0));
+  function freightMove(s, x, k, record) {
+    const R = RUN.R, F = RUN.F, { mkOut, mkDemand } = s, g = R.goodsMk;
+    const ratio = (kind) => (mkDemand[g[kind]] > 0 ? clamp(mkOut[g[kind]] / mkDemand[g[kind]], 0, 1.1) : 1);
+    // raw colour: used up by the refineries and compression works, landed by container ships
+    s.raw = hi(0, s.raw - mkOut[g.palettes] - mkOut[g.codecs]);
+    const landed = [];
+    for (const sh of x.containers) { const amt = lo(sh.cargo * F.rawPerTEU, hi(0, F.rawCap - s.raw)); s.raw += amt; landed.push([sh, amt]); }
+    // sprites for beyond the margin go to the dock; ships sail with as much as the buffer handlers can load
+    s.dock += mkOut[g.sprites] * s.exportShare;
+    const loaded = [];
+    for (const sh of x.departing) { const amt = lo(s.dock, sh.cargo * F.exportPerTEU * clamp(s.bufR, 0.3, 1)); s.dock -= amt; loaded.push([sh, amt]); }
+    // the shops' shelves: sold from, then restocked on the day's rounds, as far as the rounds can reach
+    const sold = new Float64Array(16), deliv = new Float64Array(16), want = new Float64Array(16);
+    for (const mk of R.markets) if (mk.kind === 'shop') sold[mk.district] += mkOut[mk.i];
+    const sh2 = s.shelf.slice();
+    for (let d = 0; d < 16; d++) {
+      sh2[d] = hi(0, sh2[d] - sold[d]);
+      want[d] = hi(0, 2 * F.shopNeed[d] - sh2[d]); // shops keep about two days on the shelves
+      deliv[d] = lo(want[d], 1.15 * F.shopNeed[d] * clamp(s.distR, 0, 1.1) * disruption(x, d));
+      sh2[d] += deliv[d];
+    }
+    s.shelf = sh2;
+    s.haulR = ratio('haulage'); s.distR = ratio('distribution'); s.bufR = ratio('buffers');
+    if (!record) return;
+    // the shipping register
+    for (const [sh, amt] of landed) { const e = { id: sh.id, name: sh.name, from: sh.from, arrive: sh.arrive, depart: sh.depart, teu: sh.cargo, held: sh.held, raw: Math.round(amt), loaded: null }; RUN.ships.push(e); RUN.shipById[sh.id] = e; }
+    for (const [sh, amt] of loaded) { const e = RUN.shipById[sh.id]; if (e) e.loaded = Math.round(amt); }
+    const dn = (d) => R.districts[d], at = dayStart(k) + DAY;
+    const emitF = (type, importance, idPart, data, headline, sec) => RUN.events.push({ id: 'freight:' + idPart, time: iso(at + sec * 1000), ms: at + sec * 1000, source: 'freight', type, importance, data, headline });
+    const cool = RUN.cool, rawDays = s.raw / F.rawNeed, dockFill = s.dock / F.dockCap;
+    if (rawDays < 3 && k - (cool.raw || -999) > 30) {
+      cool.raw = k;
+      emitF('freight.rawlow', 3, 'rawlow:' + ymd(dayStart(k)), { days: rd(rawDays, 10), held: x.held }, 'Raw colour at the export dock is down to ' + (rawDays < 2 ? 'a day\u2019s' : Math.floor(rawDays) + ' days\u2019') + ' supply' + (x.held ? ', with ships held outside the harbour' : '') + '; the Palette Refineries and Compression Works are rationing', 4);
+    }
+    if (dockFill > 0.9 && k - (cool.dock || -999) > 30) {
+      cool.dock = k;
+      emitF('freight.dockfull', 3, 'dockfull:' + ymd(dayStart(k)), { fill: rd(dockFill * 100, 1) }, 'The export dock is full: sprites are waiting for ships, and the Render Plants are turning away orders from beyond the margin', 5);
+    }
+    // shelves running low: one report a day, naming every district affected
+    const low = [];
+    for (let d = 0; d < 16; d++) {
+      const days = F.shopNeed[d] > 0 ? s.shelf[d] / F.shopNeed[d] : 3;
+      if (days < 0.8 && k - (cool['sh' + d] || -999) > 25) { cool['sh' + d] = k; low.push([d, days]); }
+    }
+    if (low.length) {
+      const d0 = low[0][0], worst = Math.min(...low.map((l) => l[1]));
+      const why = x.storm ? ' since the storm' : low.some((l) => x.darkFrac[l[0]] > 0.2) ? ' through the blackout' : x.gp && low.some((l) => l[0] === STADIUM_DISTRICT) ? ' with Grand Prix crowds on the buses' : s.distR < 0.9 ? ', with too few data distributors left to make the rounds' : (x.levels['policy.trafficLimits'] || 0) ? ' under the Senate\u2019s traffic limits' : '';
+      const names = low.map((l) => dn(l[0])), list = names.length <= 2 ? names.join(' and ') : names.length > 5 ? names.length + ' districts' : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+      emitF('freight.shelves', worst < 0.4 || low.length > 5 ? 3 : 2, 'shelves:' + ymd(dayStart(k)) + ':' + d0, { districts: names, days: rd(worst, 10) }, 'Shelves are emptying in ' + list + ': deliveries have fallen behind' + why, 6);
+    }
+    for (const [sh] of landed) if (sh.held >= 24 * H) emitF('freight.arrival', rawDays < 4 ? 2 : 1, 'late:' + sh.id, { ship: sh.name, hours: Math.floor(sh.held / H), teu: sh.cargo }, 'The ' + sh.name + ' berths at last after ' + Math.floor(sh.held / H) + ' hours held outside the harbour, with ' + sh.cargo + ' TEU of raw colour', 7);
+    let minShelf = 99, sumShelf = 0, delivered = 0, wanted = 0;
+    for (let d = 0; d < 16; d++) { const v = F.shopNeed[d] > 0 ? s.shelf[d] / F.shopNeed[d] : 3; if (v < minShelf) minShelf = v; sumShelf += v; delivered += deliv[d]; wanted += want[d]; }
+    RUN.freightDays.push({ k, day: dayStart(k), date: ymd(dayStart(k)), rawDays: rd(rawDays, 10), dockDays: rd(s.dock / F.exportNormal, 10), dockFill: rd(dockFill * 100, 1), shelves: Array.from(s.shelf, (v, d) => rd(F.shopNeed[d] > 0 ? v / F.shopNeed[d] : 3, 10)),
+      minShelf: rd(minShelf, 10), avgShelf: rd(sumShelf / 16, 10), deliveries: wanted > 0 ? rd(delivered / wanted * 100, 1) : 100, haulage: rd(s.haulR * 100, 1), distribution: rd(s.distR * 100, 1), buffers: rd(s.bufR * 100, 1), landed: landed.length, sailed: loaded.length });
+  }
+
   // one trading day. record: whether this is the forward run (which keeps history and events) or a rebuild.
   function step(s, record) {
     const R = RUN.R, k = s.k, x = conditions(k), r = seeded('day:' + k), N = R.N, M = R.M;
@@ -449,7 +551,11 @@
       const sub = mk.sub;
       const mood = 0.5 + 0.5 * s.conf; // confidence moves spending, but pixels still need what they need
       if (mk.kind === 'shop') f = shopMood(sub, x, mk.district) * mood;
-      else if (mk.kind === 'sprites') f = 0.6 * s.world + 0.4 * s.shopUnits * mood;
+      else if (mk.kind === 'sprites') { // orders from beyond the margin only count while the export dock has room for them
+        const room = s.fOn ? clamp((RUN.F.dockCap - s.dock) / (0.25 * RUN.F.dockCap), 0, 1) : 1;
+        const abroad = 0.6 * s.world * room, home = 0.4 * s.shopUnits * mood;
+        f = abroad + home; s.exportShare = f > 0 ? abroad / f : 0;
+      }
       else if (mk.kind === 'textures' || mk.kind === 'codecs') f = spritesR;
       else if (mk.kind === 'palettes') f = texturesR;
       else if (mk.kind === 'haulage') f = s.factoryUnits;
@@ -463,7 +569,10 @@
     }
 
     phaseSupply(s, x, lawCap);
+    if (!s.fOn && dayStart(k) >= FREIGHT_START) freightBegin(s);
+    if (s.fOn) freightLimits(s);
     const { shopUnits, factoryUnits, revOther } = phaseClear(s);
+    if (s.fOn) freightMove(s, x, k, record);
     const { closures, profitSum, revSum } = phaseBooks(s, x, k, r, record, emit, dn);
     // confidence: profits, closures, blackouts and smog, felt over a fortnight
     s.closures7 = s.closures7.slice(1); const c7 = new Float64Array(7); c7.set(s.closures7); c7[6] = closures; s.closures7 = c7;
@@ -559,7 +668,7 @@
   function eventsBetween(from, to) {
     if (!ready()) return [];
     advance(closedDays(to));
-    return RUN.events.filter((e) => e.ms >= from && e.ms < to).map((e) => ({ id: e.id, time: e.time, source: e.source, type: e.type, importance: e.importance, data: e.data, headline: e.headline }));
+    return RUN.events.filter((e) => e.source === 'commerce' && e.ms >= from && e.ms < to).map((e) => ({ id: e.id, time: e.time, source: e.source, type: e.type, importance: e.importance, data: e.data, headline: e.headline }));
   }
   /** Phase 2 hook for the Job Centre: is anyone trading at this premises at t, and how many staff do they keep? */
   function premisesAt(id, t) {
@@ -598,7 +707,28 @@
     return out;
   }
 
+  // ---------------------------------------------------------------- freight: reading the docks and the rounds
+  const fReady = (t) => ready() && t >= FREIGHT_START + DAY;
+  function freightStateAt(t) {
+    if (!fReady(t)) return { started: false, startDate: ymd(FREIGHT_START) };
+    const k = closedDays(t); advance(k);
+    const d = RUN.freightDays[RUN.freightDays.length - 1 - (RUN.s.k - k)] || RUN.freightDays[RUN.freightDays.length - 1];
+    const R = register();
+    return Object.assign({ started: true, asOf: iso(d.day + DAY) }, d, {
+      districts: d.shelves.map((v, i) => ({ id: i, name: R.districts[i], shelfDays: v, status: v < 0.4 ? 'empty' : v < 1 ? 'running low' : v < 2 ? 'thin' : 'stocked' })),
+      ships: RUN.ships.filter((e) => e.arrive < t).slice(-14).reverse().map((e) => Object.assign({}, e, { arrive: iso(e.arrive), depart: iso(e.depart), sailed: e.depart < t, loaded: e.depart < t ? e.loaded : null })) });
+  }
+  const freightAPI = {
+    source: 'freight', startDate: ymd(FREIGHT_START), start: FREIGHT_START, ready: () => ready(),
+    /** The docks and the rounds at the last close: raw colour in days, the export dock, haulage, every district's shelves, recent ships. */
+    stateAt: freightStateAt,
+    historyBetween(from, to) { if (!ready()) return []; advance(closedDays(to)); return RUN.freightDays.filter((d) => d.day + DAY > from && d.day + DAY <= to).map((d) => Object.assign({}, d)); },
+    shipsBetween(from, to) { if (!ready()) return []; advance(closedDays(to)); return RUN.ships.filter((e) => e.arrive >= from && e.arrive < to && e.arrive < dayStart(RUN.s.k)).map((e) => Object.assign({}, e, { arrive: iso(e.arrive), depart: iso(e.depart), loaded: e.depart < to ? e.loaded : null })); },
+    eventsBetween(from, to) { if (!ready()) return []; advance(closedDays(to)); return RUN.events.filter((e) => e.source === 'freight' && e.ms >= from && e.ms < to).map((e) => ({ id: e.id, time: e.time, source: e.source, type: e.type, importance: e.importance, data: e.data, headline: e.headline })); }
+  };
+
   root.PixelUniverse = root.PixelUniverse || {};
+  root.PixelUniverse.freight = freightAPI;
   root.PixelUniverse.commerce = {
     version: VERSION, source: 'commerce', startDate: ymd(START), start: START, ready,
     stateAt, firmsAt, marketsAt, business, premisesAt, historyBetween, eventsBetween, openAt, occupantAt, closeOf, staffAt,

@@ -105,3 +105,11 @@ h2 { font: 700 1.45rem/1.15 var(--display); letter-spacing: -0.02em; margin: 44p
 .filter { display: inline-flex; gap: 8px; align-items: center; color: var(--muted); }
 .filter select { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); padding: 7px 9px; border-radius: 3px; }
 .pager { margin-top: 16px; display: flex; gap: 16px; align-items: center; }
+
+/* ---------- freight ---------- */
+.freight td.note { color: rgba(196,247,255,0.55); font-size: 0.86rem; }
+.meter { display: inline-block; width: 100%; min-width: 80px; height: 8px; background: rgba(127,127,127,0.18); vertical-align: middle; }
+.meter i { display: block; height: 100%; background: var(--up); }
+.meter i.warn { background: var(--warn); }
+.board .meter { background: rgba(70,214,255,0.12); } .board .meter i { background: #46D6FF; } .board .meter i.warn { background: #FFD23F; }
+@media (max-width: 640px) { .freight th:nth-child(4), .freight td.note { display: none; } }
