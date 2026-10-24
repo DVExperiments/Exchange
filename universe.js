@@ -6,14 +6,14 @@
  * debts and, now and then, fail. An empty premises stays empty for a while, then someone new opens there.
  *
  * Nothing here is scripted. Each trading day, demand comes from the city as it is: the weather, blackouts in each
- * district, the Senate's laws, ships at the port, Grand Prix days, the price of power, and a world market for screens.
- * Demand flows down a supply chain (screens need diodes and glass, diodes need phosphor, shops need distribution,
+ * district, the Senate's laws, ships at the port, Grand Prix days, the price of power, and orders for sprites from beyond the margin.
+ * Demand flows down a supply chain (sprites need textures and codecs, textures need palettes, shops need distribution,
  * everyone needs offices), one day behind, so a shock in one place arrives somewhere else days or weeks later. Business
  * confidence follows profits, closures, blackouts and smog, and feeds back into what pixels spend.
  *
  * Tier: a reader. It reads City (map, power history, laws, port), the Weather Bureau and the Census Office's business
- * register (labour.employers(), which is fixed by the map). Nothing reads it yet. Phase 2: the Job Centre reads which
- * businesses are open and how many staff they keep.
+ * register (labour.employers(), which is fixed by the map). Phase 2: working lives (the Census Office's
+ * careers, read by the Job Centre) follow it: a closure lays its staff off, and businesses hire as many as they want.
  *
  * Time: trading days run 00:00 to 00:00 UTC (noon to noon, city time). Results are posted at the close, when the new
  * edition of the Daily Pixel comes out. Records begin with the city, 3 December 2025.
@@ -24,7 +24,7 @@
 (function (root) {
   'use strict';
 
-  const VERSION = '1.0.0';
+  const VERSION = '1.1.0';
   const MIN = 60000, H = 3600000, DAY = 86400000;
   const START = Date.UTC(2025, 11, 3); // the first trading day: the first Daily Crawl
 
@@ -56,32 +56,35 @@
   const U = () => root.PixelUniverse || {};
   const City = () => U().city, Wx = () => U().climate, Lab = () => U().labour;
   const ok = (x) => !!(x && (!x.ready || x.ready()));
-  const ready = () => ok(City()) && ok(Wx()) && ok(Lab());
+  // the register of businesses only: working lives depend on the Exchange, so asking for them here would go round in a circle
+  const ready = () => ok(City()) && ok(Wx()) && !!(Lab() && Lab().registryReady && Lab().registryReady());
 
   // ---------------------------------------------------------------- what each kind of business is
   // Shares of the price of one unit (one worker-day of output) at normal prices: labour, power, inputs, rent.
   // The rest is margin. Labour and rent are paid whether or not anything sells; that is what makes a quiet month dangerous.
   const KIND = {
-    phosphor: { sector: 'factory', label: 'Phosphor', unit: 'drums', labour: 0.32, power: 0.2, rent: 0.08, inputs: [['import', 0.22]] },
-    diodes: { sector: 'factory', label: 'Diodes', unit: 'reels', labour: 0.32, power: 0.16, rent: 0.08, inputs: [['phosphor', 0.26]] },
-    glass: { sector: 'factory', label: 'Glass', unit: 'panes', labour: 0.3, power: 0.24, rent: 0.08, inputs: [['import', 0.2]] },
-    screens: { sector: 'factory', label: 'Screens', unit: 'screens', labour: 0.3, power: 0.1, rent: 0.06, inputs: [['diodes', 0.22], ['glass', 0.16]] },
-    freight: { sector: 'warehouse', label: 'Freight', labour: 0.48, power: 0.08, rent: 0.22, inputs: [] },
-    storage: { sector: 'warehouse', label: 'Storage', labour: 0.48, power: 0.1, rent: 0.22, inputs: [] },
-    distribution: { sector: 'warehouse', label: 'Distribution', labour: 0.48, power: 0.08, rent: 0.22, inputs: [] },
-    stevedores: { sector: 'port', label: 'Stevedoring', labour: 0.5, power: 0.06, rent: 0.2, inputs: [] },
+    palettes: { sector: 'factory', label: 'Palettes', labour: 0.32, power: 0.2, rent: 0.08, inputs: [['import', 0.22]] },
+    textures: { sector: 'factory', label: 'Textures', labour: 0.32, power: 0.16, rent: 0.08, inputs: [['palettes', 0.26]] },
+    codecs: { sector: 'factory', label: 'Codecs', labour: 0.3, power: 0.24, rent: 0.08, inputs: [['import', 0.2]] },
+    sprites: { sector: 'factory', label: 'Sprites', labour: 0.3, power: 0.1, rent: 0.06, inputs: [['textures', 0.22], ['codecs', 0.16]] },
+    haulage: { sector: 'warehouse', label: 'Packet haulage', labour: 0.48, power: 0.08, rent: 0.22, inputs: [] },
+    cache: { sector: 'warehouse', label: 'Caching', labour: 0.48, power: 0.1, rent: 0.22, inputs: [] },
+    distribution: { sector: 'warehouse', label: 'Data distribution', labour: 0.48, power: 0.08, rent: 0.22, inputs: [] },
+    buffers: { sector: 'port', label: 'Export buffering', labour: 0.5, power: 0.06, rent: 0.2, inputs: [] },
     office: { sector: 'office', label: 'Office services', labour: 0.58, power: 0.05, rent: 0.2, inputs: [] },
     shop: { sector: 'shop', label: 'Shops', labour: 0.42, power: 0.05, rent: 0.1, inputs: [['distribution', 0.3]] }
   };
-  const FACTORY = { 'Phosphor Mills': 'phosphor', 'Diode Works': 'diodes', 'Glass & Light': 'glass', 'Screen Works': 'screens' };
-  const WAREHOUSE = { Freight: 'freight', Storage: 'storage', Distribution: 'distribution' };
-  const SHOPS = ['Pixel Pantry', 'Corner Store', 'Florist', 'Coffee', 'Hardware', 'Bakery', 'News & Sweets'];
-  const OFFICES = ['Typesetting', 'Colour Consultants', 'Gradient Partners', 'Alignment Bureau', 'Refresh Services', 'Font Licensing', '& Associates', 'Brightness Advisory'];
+  // what the city makes: raw colour comes in by sea and is refined into palettes, palettes are cast into textures,
+  // textures and codecs are rendered into sprites, and sprites are what Pixel City sells to the world
+  const FACTORY = { 'Palette Refinery': 'palettes', 'Texture Foundry': 'textures', 'Compression Works': 'codecs', 'Render Plant': 'sprites' };
+  const WAREHOUSE = { 'Packet Haulage': 'haulage', Cache: 'cache', 'Data Distribution': 'distribution' };
+  // what pixels buy: a top-up of charge, fresh colours, a patch for a glitch, a little shading, the race feed, and staples
+  const SHOPS = ['Refresh Pantry', 'Cache & Carry', 'Palette Shop', 'Charge Bar', 'Patch Shop', 'Shader Parlour', 'Signal Kiosk'];
+  const OFFICES = ['Typesetting', 'Colour Consultants', 'Gradient Partners', 'Alignment Bureau', 'Refresh Services', 'Font Licensing', 'Calibration Services', 'Brightness Advisory'];
   // names for businesses that open later in an empty premises, in the same style as the Census Office's register
   const NAME_A = ['Halftone', 'Gridley', 'Kerning', 'Lumen', 'Raster', 'Gamut', 'Pica', 'Serif', 'Vector', 'Glyph', 'Phosphor', 'Contrast', 'Aperture', 'Prism', 'Bitwell', 'Dotson', 'Inkwell', 'Scanlon',
     'Bezelton', 'Luma', 'Chromwell', 'Pixley', 'Nibbs', 'Ditherby', 'Hexley', 'Moirette', 'Voxel', 'Sprite', 'Bitmap', 'Palette'];
-  const NAME_F = ['Ada', 'Amber', 'Arlo', 'Bea', 'Bit', 'Bram', 'Cass', 'Cyan', 'Dot', 'Edie', 'Ember', 'Fen', 'Flint', 'Glint', 'Halo', 'Hex', 'Ines', 'Juno', 'Kit', 'Lux', 'Mag', 'Nell', 'Opal', 'Pix', 'Quin', 'Rue', 'Sol', 'Tess', 'Umber', 'Vera'];
-  const SUFFIX_NEW = { phosphor: 'Phosphor Mills', diodes: 'Diode Works', glass: 'Glass & Light', screens: 'Screen Works', freight: 'Freight', storage: 'Storage', distribution: 'Distribution', stevedores: 'Stevedores' };
+  const SUFFIX_NEW = { palettes: 'Palette Refinery', textures: 'Texture Foundry', codecs: 'Compression Works', sprites: 'Render Plant', haulage: 'Packet Haulage', cache: 'Cache', distribution: 'Data Distribution', buffers: 'Buffer Handlers' };
 
   // ---------------------------------------------------------------- the register: premises, businesses and markets
   let REG = null;
@@ -97,11 +100,11 @@
     };
     const prem = list.map((e, i) => {
       let kind, sub, mk;
-      if (e.sector === 'factory') { sub = Object.keys(FACTORY).filter((s) => e.name.endsWith(s))[0] || 'Screen Works'; kind = FACTORY[sub]; mk = market('goods:' + kind, kind, KIND[kind].label, -1); }
-      else if (e.sector === 'warehouse') { sub = Object.keys(WAREHOUSE).filter((s) => e.name.endsWith(s))[0] || 'Storage'; kind = WAREHOUSE[sub]; mk = market('trade:' + kind, kind, KIND[kind].label, -1); }
-      else if (e.sector === 'port') { sub = 'Stevedores'; kind = 'stevedores'; mk = market('trade:stevedores', kind, 'Stevedoring', -1); }
-      else if (e.sector === 'office') { sub = OFFICES.filter((s) => e.name.endsWith(s))[0] || '& Associates'; kind = 'office'; mk = market('office:' + sub, kind, sub.replace(/^& /, ''), -1); }
-      else { sub = SHOPS.filter((s) => e.name.endsWith(s))[0] || 'Corner Store'; kind = 'shop'; mk = market('shop:' + sub + ':' + e.district, kind, sub, e.district); }
+      if (e.sector === 'factory') { sub = Object.keys(FACTORY).filter((s) => e.name.endsWith(s))[0] || 'Render Plant'; kind = FACTORY[sub]; mk = market('goods:' + kind, kind, KIND[kind].label, -1); }
+      else if (e.sector === 'warehouse') { sub = Object.keys(WAREHOUSE).filter((s) => e.name.endsWith(s))[0] || 'Cache'; kind = WAREHOUSE[sub]; mk = market('trade:' + kind, kind, KIND[kind].label, -1); }
+      else if (e.sector === 'port') { sub = 'Buffer Handlers'; kind = 'buffers'; mk = market('trade:buffers', kind, 'Export buffering', -1); }
+      else if (e.sector === 'office') { sub = OFFICES.filter((s) => e.name.endsWith(s))[0] || 'Calibration Services'; kind = 'office'; mk = market('office:' + sub, kind, sub, -1); }
+      else { sub = SHOPS.filter((s) => e.name.endsWith(s))[0] || 'Cache & Carry'; kind = 'shop'; mk = market('shop:' + sub + ':' + e.district, kind, sub, e.district); }
       markets[mk].firmList = markets[mk].firmList || []; markets[mk].firmList.push(i);
       markets[mk].cap += e.capacity;
       markets[mk].sub = sub;
@@ -170,12 +173,14 @@
   function shopMood(sub, x, district) {
     let f = 1;
     const spring = x.month >= 8 && x.month <= 10, summer = x.month === 11 || x.month <= 1, winter = x.month >= 5 && x.month <= 7;
-    if (sub === 'Coffee') { if (x.max < 14) f *= 1.16; else if (x.max > 24) f *= 0.88; if (x.weekend) f *= 1.08; }
-    else if (sub === 'Florist') { f *= spring ? 1.22 : summer ? 1.08 : winter ? 0.74 : 0.95; f *= 0.9 + x.sunshine * 0.02; if (x.rain > 8) f *= 0.8; }
-    else if (sub === 'Hardware') { if (x.stormYesterday) f *= 1.6; if (x.weekend) f *= 1.15; }
-    else if (sub === 'News & Sweets') { if (x.gp) f *= 1.6; }
-    else if (sub === 'Bakery') { if (x.weekend) f *= 1.1; }
-    if (x.storm) f *= sub === 'Corner Store' ? 0.85 : 0.6;
+    // charge runs low on grey, cold days; new colours sell in spring; glitches need patching after a storm; shading is
+    // a weekend treat; the race feed sells on Grand Prix day; staples sell whatever happens
+    if (sub === 'Charge Bar') { if (x.sunshine < 3) f *= 1.16; if (x.max < 12) f *= 1.08; if (x.weekend) f *= 1.06; }
+    else if (sub === 'Palette Shop') { f *= spring ? 1.22 : summer ? 1.08 : winter ? 0.74 : 0.95; f *= 0.9 + x.sunshine * 0.02; if (x.rain > 8) f *= 0.8; }
+    else if (sub === 'Patch Shop') { if (x.stormYesterday) f *= 1.6; if (x.weekend) f *= 1.15; }
+    else if (sub === 'Signal Kiosk') { if (x.gp) f *= 1.6; }
+    else if (sub === 'Shader Parlour') { if (x.weekend) f *= 1.18; if (x.sunshine > 8) f *= 1.06; }
+    if (x.storm) f *= sub === 'Cache & Carry' ? 0.85 : 0.6;
     else if (x.rain > 10) f *= 0.88;
     if (x.gp && district === STADIUM_DISTRICT) f *= 1.35;
     f *= 1 - 0.85 * x.darkFrac[district];
@@ -184,12 +189,12 @@
     return f;
   }
   let STADIUM_DISTRICT = 9;
-  const ELASTIC = { shop: 1.2, office: 1, screens: 1.1, diodes: 0.7, glass: 0.7, phosphor: 0.7, freight: 0.6, storage: 0.6, distribution: 0.6, stevedores: 0.4 };
+  const ELASTIC = { shop: 1.2, office: 1, sprites: 0.8, textures: 0.7, codecs: 0.7, palettes: 0.7, haulage: 0.6, cache: 0.6, distribution: 0.6, buffers: 0.4 };
 
   // ---------------------------------------------------------------- the state of the market, day by day
   // Per business: the occupant now (generation), price, staff (share of the premises' capacity), cash, quality,
   // efficiency, appetite for a price war, reputation, the margin it has been making, days in loss, and what it sold.
-  const FIELDS = ['util', 'patience', 'price', 'staff', 'cash', 'q', 'eff', 'aggr', 'rep', 'margin', 'loss', 'sales', 'rev', 'profit', 'open', 'gen', 'since', 'reopen', 'credit', 'supply'];
+  const FIELDS = ['sf', 'util', 'patience', 'price', 'staff', 'cash', 'q', 'eff', 'aggr', 'rep', 'margin', 'loss', 'sales', 'rev', 'profit', 'open', 'gen', 'since', 'reopen', 'credit', 'supply'];
   function blank(N) { const s = {}; for (const f of FIELDS) s[f] = new Float64Array(N); return s; }
   function clone(s) { const c = {}; for (const f of FIELDS) c[f] = s[f].slice(); for (const k of ['k', 'conf', 'importIdx', 'world', 'mkPrice', 'mkOut', 'mkUnmet', 'mkDemand', 'shopUnits', 'factoryUnits', 'revOther', 'closures7', 'cargoAvg']) c[k] = s[k] && s[k].slice ? s[k].slice() : s[k]; return c; }
 
@@ -202,7 +207,7 @@
     const fixed = p.capacity * (p.wage + KIND[p.kind].rent * p.P0 * p.rentK);
     s.cash[i] = fixed * (gen ? 18 + r() * 30 : 20 + r() * 45);
     s.credit[i] = fixed * (14 + r() * 26);
-    s.rep[i] = gen ? 0.5 : 1; s.util[i] = 0.85;
+    s.rep[i] = gen ? 0.5 : 1; s.util[i] = 0.85; s.sf[i] = 1;
     s.patience[i] = 75 + Math.floor(r() * 150); // how many losing days an owner will stand
     return r;
   }
@@ -210,8 +215,7 @@
     const p = R.prem[i];
     if (!gen) return p.name0;
     const r = seeded('name:' + p.id + ':' + gen);
-    if (p.kind === 'shop') return pick(r, NAME_F) + '\u2019s ' + p.sub;
-    if (p.kind === 'office') return pick(r, NAME_A) + ' ' + p.sub;
+    if (p.kind === 'shop' || p.kind === 'office') return pick(r, NAME_A) + ' ' + p.sub;
     return pick(r, NAME_A) + ' ' + SUFFIX_NEW[p.kind];
   }
 
@@ -238,22 +242,23 @@
 
   function phaseSupply(s, x, lawCap) {
     const R = RUN.R, N = R.N;
-    const { util, patience, price, staff, cash, q, eff, aggr, rep, margin, loss, sales, rev, profit, open, gen, since, reopen, credit, supply, mkPrice, mkOut, mkUnmet, mkDemand } = s;
+    const { sf, util, patience, price, staff, cash, q, eff, aggr, rep, margin, loss, sales, rev, profit, open, gen, since, reopen, credit, supply, mkPrice, mkOut, mkUnmet, mkDemand } = s;
     // each business's supply: staff, skill, the lights being on, the weather at the docks, the Senate's limits
     for (let i = 0; i < N; i++) {
       if (!open[i]) { supply[i] = 0; continue; }
       const p = R.prem[i];
       let sup = p.capacity * staff[i] * eff[i];
       if (p.kind !== 'shop') sup *= 1 - x.darkFrac[p.district];
-      if (p.kind === 'stevedores' && x.portClosed) sup *= 0.15;
-      if (KIND[p.kind].sector === 'factory') sup *= p.kind === 'phosphor' || p.kind === 'glass' ? lawCap - 0.04 * (x.levels['policy.emissionsCap'] || 0) : lawCap;
+      if (p.kind === 'buffers' && x.portClosed) sup *= 0.15;
+      if (KIND[p.kind].sector === 'factory') sup *= p.kind === 'palettes' || p.kind === 'codecs' ? lawCap - 0.04 * (x.levels['policy.emissionsCap'] || 0) : lawCap;
+      sf[i] = sf[i] * 0.9 + 0.1 * (sup / (p.capacity * staff[i] * eff[i])); // how much of a full day's work the law, the weather and the lights allow
       supply[i] = sup;
     }
 
   }
   function phaseClear(s) {
     const R = RUN.R, N = R.N;
-    const { util, patience, price, staff, cash, q, eff, aggr, rep, margin, loss, sales, rev, profit, open, gen, since, reopen, credit, supply, mkPrice, mkOut, mkUnmet, mkDemand } = s;
+    const { sf, util, patience, price, staff, cash, q, eff, aggr, rep, margin, loss, sales, rev, profit, open, gen, since, reopen, credit, supply, mkPrice, mkOut, mkUnmet, mkDemand } = s;
     // the market clears: customers go where quality is high and prices low, then spill over to whoever has room
     const a = new Float64Array(N);
     let shopUnits = 0, factoryUnits = 0, revOther = 0;
@@ -282,7 +287,7 @@
   }
   function phaseBooks(s, x, k, r, record, emit, dn) {
     const R = RUN.R, N = R.N;
-    const { util, patience, price, staff, cash, q, eff, aggr, rep, margin, loss, sales, rev, profit, open, gen, since, reopen, credit, supply, mkPrice, mkOut, mkUnmet, mkDemand } = s;
+    const { sf, util, patience, price, staff, cash, q, eff, aggr, rep, margin, loss, sales, rev, profit, open, gen, since, reopen, credit, supply, mkPrice, mkOut, mkUnmet, mkDemand } = s;
     // the books, and each business's decisions for tomorrow
     const goodsPrice = (kind) => kind === 'import' ? s.importIdx : mkPrice[R.goodsMk[kind]] / R.markets[R.goodsMk[kind]].P0;
     const inputCost = {}; // what one unit's inputs cost today, by kind of business (the same for every business of a kind)
@@ -315,30 +320,31 @@
       const profitI = revI - labour - power - rent - unitInputs * sold;
       rev[i] = revI; profit[i] = profitI; cash[i] += profitI;
       margin[i] = margin[i] * 0.93 + (revI > 0 ? profitI / revI : -1) * 0.07;
-      loss[i] = profitI < 0 ? loss[i] + 1 : hi(0, loss[i] - 2);
+      loss[i] = profitI < -0.05 * revI ? loss[i] + 1 : hi(0, loss[i] - 2); // thin losses are tolerated; it's the bad days that count
       profitSum += profitI; revSum += revI;
       // price: up when sold out and others are short, down when goods sit unsold; never far below cost for long
       const ri = r();
       // each business aims for its costs at a normal day's trade plus its own markup (the bold ones take less, to win
       // customers), then leans on that: up when sold out with customers turned away, down when goods sit unsold
-      const unitCost = (labour + power + rent) / hi(1, sold) + unitInputs;
-      const normalCost = p.wage / eff[i] + K.power * p.P0 * x.powerIdx + unitInputs + K.rent * p.P0 * p.rentK / eff[i];
-      price[i] += (normalCost * (1.06 + 0.16 * (1 - aggr[i])) - price[i]) * 0.05;
-      if (ud > 0.97 && u > 0.9 && mkUnmet[p.market] > 0.02) price[i] *= 1.002 + 0.006 * (1 - aggr[i]) + ri * 0.003;
-      else if (u < 0.7) price[i] *= 1 - (0.002 + 0.008 * aggr[i]) * (0.7 - u) / 0.7 * 3;
+      const normalCost = p.wage / (eff[i] * hi(0.3, sf[i])) + K.power * p.P0 * x.powerIdx + unitInputs + K.rent * p.P0 * p.rentK / eff[i];
+      // when customers are being turned away, everyone can charge more: the scarcer, the dearer
+      const scarce = u > 0.85 ? lo(0.6, mkUnmet[p.market] * (1.2 - 0.6 * aggr[i])) : 0;
+      price[i] += (normalCost * (1.06 + 0.16 * (1 - aggr[i])) * (1 + scarce) - price[i]) * 0.04;
+      if (u < 0.7) price[i] *= 1 - (0.002 + 0.008 * aggr[i]) * (0.7 - u) / 0.7 * 3;
       price[i] *= 1 + (ri - 0.5) * 0.004;
-      price[i] = clamp(price[i], hi(unitCost * (0.82 - 0.12 * aggr[i]), p.P0 * 0.5), p.P0 * 2.6);
+      price[i] = clamp(price[i], hi(normalCost * (0.82 - 0.12 * aggr[i]), p.P0 * 0.5), p.P0 * 2.6); // a slump can't be priced away
       // staff: take people on when sold out and making money; let them go when quiet or short of cash
       if (u > 0.93 && margin[i] > 0.02 && cash[i] > 0) staff[i] = lo(1, staff[i] + 0.02 + 0.02 * r());
-      else if (u < 0.6 || (cash[i] < -0.5 * credit[i] && u < 0.85)) staff[i] = hi(0.3, staff[i] - 0.015 - 0.015 * r());
+      else if (u < 0.6 || (cash[i] < -0.5 * credit[i] && u < 0.85)) staff[i] = hi(margin[i] < -0.1 ? 0.15 : 0.3, staff[i] - 0.015 - 0.015 * r());
       // quality follows money: good years pay for improvements, bad ones wear things down
       q[i] = clamp(q[i] + (margin[i] > 0.08 ? 0.0004 : margin[i] < -0.05 ? -0.0004 : 0), 0.7, 1.35);
       if (rep[i] < 1) rep[i] = lo(1, rep[i] + 0.008);
       // failure: past the bank's patience, or a year of losses
       if (cash[i] < -credit[i] || loss[i] > patience[i]) {
         open[i] = 0; closures++;
-        const health = mkPrice[p.market] / R.markets[p.market].P0;
-        reopen[i] = k + 12 + Math.floor(r() * (25 + 90 * clamp(1.4 - health, 0.2, 1.2)));
+        // nobody rushes to open in a market that's going nowhere: the weaker demand is, the longer premises stay empty
+        const health = mkDemand[p.market] / R.markets[p.market].base;
+        reopen[i] = k + 14 + Math.floor(r() * (30 + 240 * clamp(1.15 - health, 0, 0.8)));
         if (record) {
           const occ = RUN.occupants[i][RUN.occupants[i].length - 1];
           occ.to = k; occ.reason = cash[i] < -credit[i] ? 'ran out of credit' : 'months of losses';
@@ -355,13 +361,13 @@
 
   function phaseRecord(s, x, k, emit, dn, at, closures, profitSum, revSum, cityMargin) {
     const R = RUN.R, N = R.N;
-    const { util, patience, price, staff, cash, q, eff, aggr, rep, margin, loss, sales, rev, profit, open, gen, since, reopen, credit, supply, mkPrice, mkOut, mkUnmet, mkDemand } = s;
+    const { sf, util, patience, price, staff, cash, q, eff, aggr, rep, margin, loss, sales, rev, profit, open, gen, since, reopen, credit, supply, mkPrice, mkOut, mkUnmet, mkDemand } = s;
     {
       // shortages and price wars, noticed by the Exchange's reporters (each market at most once a month)
       for (const mk of R.markets) {
         const ck = RUN.cool[mk.i] || -999;
         if (k - ck < 30) continue;
-        const name = mk.kind === 'shop' ? mk.sub.replace(/^& /, '').toLowerCase() : mk.label.toLowerCase();
+        const name = mk.kind === 'shop' ? mk.sub.toLowerCase() : mk.label.toLowerCase();
         const past3 = RUN.days[k - 2], past2 = RUN.days[k - 1];
         if (mk.kind !== 'shop' && mk.kind !== 'office' && mkUnmet[mk.i] > 0.12 && past3 && past3.unmet[mk.i] > 0.12 && past2.unmet[mk.i] > 0.12) {
           const past = RUN.days[k - 7];
@@ -375,7 +381,7 @@
             RUN.cool.war = k;
             RUN.cool['w' + mk.i] = k;
             RUN.cool[mk.i] = k;
-            const plural = { 'Pixel Pantry': 'pantries', 'Corner Store': 'corner stores', Florist: 'florists', Coffee: 'coffee shops', Hardware: 'hardware stores', Bakery: 'bakeries', 'News & Sweets': 'newsagents' }[mk.sub] || 'shops';
+            const plural = { 'Refresh Pantry': 'refresh pantries', 'Cache & Carry': 'cache-and-carries', 'Palette Shop': 'palette shops', 'Charge Bar': 'charge bars', 'Patch Shop': 'patch shops', 'Shader Parlour': 'shader parlours', 'Signal Kiosk': 'signal kiosks' }[mk.sub] || 'shops';
             emit('market.pricewar', 2, 'war:' + mk.key + ':' + ymd(dayStart(k)), { market: mk.sub, district: dn(mk.district), drop: rd((1 - mkPrice[mk.i] / past.prices[mk.i]) * 100, 10) },
               'A price war among the ' + plural + ' of ' + dn(mk.district) + ' has cut prices by ' + Math.round((1 - mkPrice[mk.i] / past.prices[mk.i]) * 100) + '% in three weeks', 2);
           }
@@ -417,39 +423,40 @@
   // one trading day. record: whether this is the forward run (which keeps history and events) or a rebuild.
   function step(s, record) {
     const R = RUN.R, k = s.k, x = conditions(k), r = seeded('day:' + k), N = R.N, M = R.M;
-    const { util, patience, price, staff, cash, q, eff, aggr, rep, margin, loss, sales, rev, profit, open, gen, since, reopen, credit, supply, mkPrice, mkOut, mkUnmet, mkDemand } = s;
+    const { sf, util, patience, price, staff, cash, q, eff, aggr, rep, margin, loss, sales, rev, profit, open, gen, since, reopen, credit, supply, mkPrice, mkOut, mkUnmet, mkDemand } = s;
     const ev = record ? RUN.events : null;
     const at = dayStart(k) + DAY; // results are posted at the close
     const emit = (type, importance, idPart, data, headline, sec) => { if (ev) ev.push({ id: 'commerce:' + idPart, time: iso(at + (sec || 0) * 1000), ms: at + (sec || 0) * 1000, source: 'commerce', type, importance, data, headline }); };
     const dn = (d) => R.districts[d];
 
-    // the world market for screens wanders, and now and then lurches
+    // orders for sprites from beyond the margin wander, and now and then lurch
     let lurch = 0;
     if (r() < 1 / 150) lurch = (r() < 0.5 ? -1 : 1) * (0.12 + r() * 0.12);
     s.world = clamp(1 + (s.world - 1) * 0.97 + (r() - 0.5) * 0.035 + lurch, 0.55, 1.55);
-    if (lurch && record) emit(lurch > 0 ? 'market.boom' : 'market.slump', 3, 'world:' + ymd(dayStart(k)), { good: 'screens', change: rd(lurch * 100, 1) },
-      lurch > 0 ? 'Overseas orders for Pixel City screens jump by ' + Math.round(lurch * 100) + '%; the Screen Works are working late' : 'Overseas orders for Pixel City screens fall by ' + Math.round(-lurch * 100) + '%; the Screen Works go quiet', 1);
+    if (lurch && record) emit(lurch > 0 ? 'market.boom' : 'market.slump', 3, 'world:' + ymd(dayStart(k)), { good: 'sprites', change: rd(lurch * 100, 1) },
+      lurch > 0 ? 'Orders from beyond the margin for Pixel City sprites jump by ' + Math.round(lurch * 100) + '%; the Render Plants are working late' : 'Orders from beyond the margin for Pixel City sprites fall by ' + Math.round(-lurch * 100) + '%; the Render Plants go quiet', 1);
     // raw colour comes in by sea: dearer when ships are held outside the harbour
     s.importIdx = clamp(1 + (s.importIdx - 1) * 0.96 + (r() - 0.5) * 0.02 + (x.portClosed ? 0.03 : 0) + x.held * 0.01, 0.75, 1.6);
 
     // demand, market by market. Factories, warehouses and offices answer to the rest of the city one day behind.
     const out = (kind) => mkOut[R.goodsMk[kind]] / R.markets[R.goodsMk[kind]].base;
-    const screensR = out('screens'), diodesR = out('diodes');
+    const spritesR = out('sprites'), texturesR = out('textures');
     s.cargoAvg = s.cargoAvg * 0.97 + x.cargo * 0.03;
     const portR = x.portClosed ? 0.15 : clamp(x.cargo / hi(0.3, s.cargoAvg), 0.2, 2.2);
     const lawCap = 1 - 0.07 * (x.levels['policy.emissionsCap'] || 0);
     for (const mk of R.markets) {
       let f;
       const sub = mk.sub;
-      if (mk.kind === 'shop') f = shopMood(sub, x, mk.district) * s.conf;
-      else if (mk.kind === 'screens') f = 0.6 * s.world + 0.4 * s.shopUnits * s.conf;
-      else if (mk.kind === 'diodes' || mk.kind === 'glass') f = screensR;
-      else if (mk.kind === 'phosphor') f = diodesR;
-      else if (mk.kind === 'freight') f = s.factoryUnits;
-      else if (mk.kind === 'storage') f = 0.55 * portR + 0.45 * s.factoryUnits;
+      const mood = 0.5 + 0.5 * s.conf; // confidence moves spending, but pixels still need what they need
+      if (mk.kind === 'shop') f = shopMood(sub, x, mk.district) * mood;
+      else if (mk.kind === 'sprites') f = 0.6 * s.world + 0.4 * s.shopUnits * mood;
+      else if (mk.kind === 'textures' || mk.kind === 'codecs') f = spritesR;
+      else if (mk.kind === 'palettes') f = texturesR;
+      else if (mk.kind === 'haulage') f = s.factoryUnits;
+      else if (mk.kind === 'cache') f = 0.55 * portR + 0.45 * s.factoryUnits;
       else if (mk.kind === 'distribution') f = s.shopUnits;
-      else if (mk.kind === 'stevedores') f = portR;
-      else f = s.revOther * s.conf * (1 + 0.03 * (x.levels['policy.constructionBudget'] || 0)) * (x.weekend ? 0.55 : 1.15) * (1 - 0.6 * x.darkFrac[7]);
+      else if (mk.kind === 'buffers') f = portR;
+      else f = s.revOther * mood * (1 + 0.03 * (x.levels['policy.constructionBudget'] || 0)) * (x.weekend ? 0.55 : 1.15) * (1 - 0.6 * x.darkFrac[7]);
       // dearer markets sell less: how much depends on whether pixels can do without it
       const rel = clamp(mkPrice[mk.i] / mk.P0, 0.4, 3), E = ELASTIC[mk.kind];
       mkDemand[mk.i] = mk.base * f * clamp(1 / (1 + E * (rel - 1)), 0.3, 1.6) * (0.97 + r() * 0.06);
@@ -462,8 +469,10 @@
     s.closures7 = s.closures7.slice(1); const c7 = new Float64Array(7); c7.set(s.closures7); c7[6] = closures; s.closures7 = c7;
     let c7sum = 0; for (let j = 0; j < 7; j++) c7sum += s.closures7[j];
     const cityMargin = revSum > 0 ? profitSum / revSum : 0;
-    const target = clamp(1 + (cityMargin - 0.1) * 1.6 - c7sum * 0.012 - x.blackoutHours * 0.01 - hi(0, x.aqi - 90) * 0.0006, 0.78, 1.18);
-    s.conf = s.conf + (target - s.conf) / 14;
+    // closures count as a rate (a bad week in a big city is not the end of the world), and confidence drifts back
+    // towards normal on its own, as memories fade
+    const target = clamp(1 + (cityMargin - 0.08) * 0.9 - lo(0.1, c7sum / R.N * 2.5) - x.blackoutHours * 0.008 - hi(0, x.aqi - 90) * 0.0005, 0.85, 1.15);
+    s.conf = s.conf + (target - s.conf) / 14 + (1 - s.conf) / 120;
     s.shopUnits = shopUnits / RUN.shopBase; s.factoryUnits = factoryUnits / RUN.factoryBase; s.revOther = revOther / RUN.revBase;
 
     if (record) phaseRecord(s, x, k, emit, dn, at, closures, profitSum, revSum, cityMargin);
@@ -560,10 +569,39 @@
     return { open: !!s.open[i], generation: s.gen[i], name: nameOf(R, i, s.gen[i]), staff: s.open[i] ? Math.round(R.prem[i].capacity * s.staff[i]) : 0 };
   }
 
+  // ---------------------------------------------------------------- phase 2: what working lives need to know
+  // A business is active from the close of its first trading day to the close of its last. Nothing is known about a day
+  // until it has closed, so working lives never learn of a failure before it happens.
+  const activeFrom = (o) => dayStart(o.from) + DAY, activeTo = (o) => (o.to >= 0 ? dayStart(o.to) + DAY : Infinity);
+  function occupant(id, t) {
+    const i = premisesIndex(id); if (i === undefined) return null;
+    advance(closedDays(t));
+    const list = RUN.occupants[i];
+    for (let j = list.length - 1; j >= 0; j--) { const o = list[j]; if (activeFrom(o) <= t && t < activeTo(o) && activeFrom(o) <= dayStart(RUN.s.k)) return o; }
+    return null;
+  }
+  /** Is anyone trading at this premises at t? */
+  const openAt = (id, t) => (!ready() || t < START + DAY ? true : !!occupant(id, t));
+  /** Who trades here at t: { generation, name, since } or null if empty. */
+  function occupantAt(id, t) { if (!ready()) return null; const o = occupant(id, t); return o ? { generation: o.gen, name: o.name, since: iso(activeFrom(o)) } : null; }
+  /** When the occupant of this generation closed, if it closed by upTo; otherwise null. */
+  function closeOf(id, gen, upTo) {
+    const i = premisesIndex(id); if (i === undefined) return null;
+    advance(closedDays(upTo));
+    for (const o of RUN.occupants[i]) if (o.gen === gen) return o.to >= 0 && activeTo(o) <= upTo ? activeTo(o) : null;
+    return null;
+  }
+  /** The staff every business wants at t, by premises id (0 if empty). One call per month is plenty. */
+  function staffAt(t) {
+    const R = register(), s = stateFor(closedDays(t)), out = {};
+    for (let i = 0; i < R.N; i++) out[R.prem[i].id] = s.open[i] ? Math.round(R.prem[i].capacity * s.staff[i]) : 0;
+    return out;
+  }
+
   root.PixelUniverse = root.PixelUniverse || {};
   root.PixelUniverse.commerce = {
     version: VERSION, source: 'commerce', startDate: ymd(START), start: START, ready,
-    stateAt, firmsAt, marketsAt, business, premisesAt, historyBetween, eventsBetween,
+    stateAt, firmsAt, marketsAt, business, premisesAt, historyBetween, eventsBetween, openAt, occupantAt, closeOf, staffAt,
     districts: () => (ready() ? register().districts : []), KIND
   };
 })(typeof window !== 'undefined' ? window : globalThis);

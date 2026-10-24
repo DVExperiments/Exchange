@@ -26,7 +26,7 @@
   const td = (v, n, cls) => '<td class="' + (n ? 'n ' : '') + (cls || '') + '">' + v + '</td>';
   const table = (cols, rows) => '<div class="table-wrap"><table class="data"><thead><tr>' + cols.map((c) => '<th' + (c.n ? ' class="n"' : '') + '>' + c.l + '</th>').join('') + '</tr></thead><tbody>' +
     (rows.length ? rows.join('') : '<tr><td class="muted" colspan="' + cols.length + '">Nothing yet.</td></tr>') + '</tbody></table></div>';
-  const SECTOR = { shop: 'Shop', office: 'Office', factory: 'Factory', warehouse: 'Warehouse', port: 'Docks' };
+  const SECTOR = { shop: 'Shop', office: 'Office', factory: 'Industry', warehouse: 'Caches and haulage', port: 'Export buffer' };
   const STANDING = { comfortable: 'Comfortable', steady: 'Steady', stretched: 'Stretched', 'in difficulty': 'In difficulty', empty: 'Empty' };
   const move = (a, b) => { const d = a - b; return Math.abs(d) < 0.05 ? '<span class="flat">0.0</span>' : d > 0 ? '<span class="up">\u25b2 ' + d.toFixed(1) + '</span>' : '<span class="down">\u25bc ' + (-d).toFixed(1) + '</span>'; };
   const news = (list) => '<ul class="timeline">' + (list.length ? list.map((e) => '<li><time>' + esc(fShort.format(Date.parse(e.time) - 1)) + '</time><span>' + esc(e.headline) + '</span></li>').join('') : '<li class="muted">A quiet stretch.</li>') + '</ul>';
@@ -54,7 +54,7 @@
       const hist = X.historyBetween(t - 365 * DAY, t);
       const ev = X.eventsBetween(t - 30 * DAY, t);
       const closed = ev.filter((e) => e.type === 'business.closed').length, opened = ev.filter((e) => e.type === 'business.opened').length;
-      const order = ['shop', 'office', 'screens', 'diodes', 'glass', 'phosphor', 'distribution', 'freight', 'storage', 'stevedores'];
+      const order = ['shop', 'office', 'sprites', 'textures', 'codecs', 'palettes', 'distribution', 'haulage', 'cache', 'buffers'];
       const sectors = st.sectors.slice().sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
       const short = sectors.filter((g) => g.shortage >= 8).sort((a, b) => b.shortage - a.shortage)[0];
       const c = st.confidence, status = short ? 'Business is ' + (c >= 104 ? 'brisk' : c >= 98 ? 'steady' : 'nervous') + ', and ' + short.label.toLowerCase() + ' ' + (short.kind === 'shop' || short.kind === 'office' ? 'are' : 'is') + ' running short.'
@@ -63,7 +63,7 @@
         td(g.shortage >= 1 ? g.shortage.toFixed(0) + '%' : '\u2013', 1, g.shortage >= 8 ? 'warn' : '') + td(num(g.open) + (g.open < g.firms ? '<small> of ' + num(g.firms) + '</small>' : ''), 1) + '</tr>');
       return '<section class="page-head"><p class="kicker">The close of trading, ' + esc(fDate.format(cityMs(Date.parse(st.asOf)))) + ', noon city time.</p><h1 class="status">' + esc(status) + '</h1></section>' +
         '<figure class="screen board"><table><thead><tr><th>Market</th><th class="n">Price</th><th class="n">Week</th><th class="n">Demand</th><th class="n">Unfilled</th><th class="n">Trading</th></tr></thead><tbody>' + board.join('') + '</tbody></table>' +
-        '<figcaption class="screen-bar"><span>Prices and demand against the first trading day (100).</span><span>Power ' + st.powerIdx + ', imports ' + st.importIdx + ', screens abroad ' + st.worldIdx + '</span></figcaption></figure>' +
+        '<figcaption class="screen-bar"><span>Prices and demand against the first trading day (100).</span><span>Power ' + st.powerIdx + ', imports ' + st.importIdx + ', sprites abroad ' + st.worldIdx + '</span></figcaption></figure>' +
         '<dl class="facts">' + fact('Business confidence', c.toFixed(1)) + fact('Shopping basket', st.cpi.toFixed(1), 'first day 100') + fact('Trading', num(st.open), 'of ' + num(st.businesses)) +
         fact('Staff kept on', num(st.staff)) + fact('Closed this month', closed) + fact('Opened this month', opened) + '</dl>' +
         '<div class="two-col"><section><h2>Confidence over the year</h2>' + chart(hist.map((d) => [d.date, d.confidence]), 'Business confidence') +
@@ -87,7 +87,7 @@
         td(f.open ? watts(f.revenue) : '\u2013', 1) + td(f.open ? f.staff : '\u2013', 1) + td(f.open ? f.relPrice.toFixed(0) : '\u2013', 1) + td(STANDING[f.standing], 0, f.standing === 'in difficulty' ? 'warn' : '') + '</tr>');
       const pages = Math.ceil(list.length / PAGE), qs = (k, v) => { const n = new URLSearchParams(arg || ''); n.set(k, v); if (k !== 'p') n.delete('p'); return AT + '#/businesses/' + n.toString(); };
       return head('Businesses', num(all.filter((f) => f.open).length) + ' businesses trading in Pixel City, and ' + num(all.filter((f) => !f.open).length) + ' empty premises waiting for someone new.') +
-        '<div class="filters" data-arg="' + esc(arg || '') + '">' + sel('District', dsel, [['', 'All districts']].concat(names.map((n, i) => [i, n]))) + sel('Sector', ssel, [['', 'All sectors']].concat(Object.keys(SECTOR).map((k) => [k, SECTOR[k] + 's']))) +
+        '<div class="filters" data-arg="' + esc(arg || '') + '">' + sel('District', dsel, [['', 'All districts']].concat(names.map((n, i) => [i, n]))) + sel('Sector', ssel, [['', 'All sectors']].concat(Object.keys(SECTOR).map((k) => [k, SECTOR[k]]))) +
         sel('Order', sort, [['rev', 'Takings yesterday'], ['staff', 'Staff'], ['cash', 'Cash in hand'], ['new', 'Newest']]) + '</div>' +
         table([{ l: 'Business' }, { l: 'Trade' }, { l: 'District' }, { l: 'Takings yesterday', n: 1 }, { l: 'Staff', n: 1 }, { l: 'Price vs market', n: 1 }, { l: 'Standing' }], rows) +
         (pages > 1 ? '<p class="pager">' + (page > 0 ? '<a href="' + qs('p', page - 1) + '">Previous</a> ' : '') + 'Page ' + (page + 1) + ' of ' + pages + (page < pages - 1 ? ' <a href="' + qs('p', page + 1) + '">Next</a>' : '') + '</p>' : '');
@@ -136,8 +136,8 @@
     title: 'About',
     render() {
       return head('About the Exchange', 'Where Pixel City\u2019s businesses are counted, every trading day.') + '<div class="prose">' +
-        '<p>Every shop, office, factory, warehouse and stevedore in the city trades here. Each one sets its own prices, competes for customers, takes on staff when it is busy and lets them go when it is not. Labour and rent are paid whether anything sells or not, so a quiet season is dangerous. When the cash and the patience run out, the business closes, and after a while someone new opens in the empty premises.</p>' +
-        '<p>Nothing is scripted. Demand comes from the city as it is: the weather, blackouts, smog, the Senate\u2019s laws, ships at the port, Grand Prix days and the world\u2019s appetite for Pixel City screens. It passes down a chain, a day at a time. Screens need diodes and glass, diodes need phosphor, shops need distribution, and everyone needs an office. A good month abroad for the Screen Works is a good month for the phosphor mills a few weeks later.</p>' +
+        '<p>Every shop, office, render plant, refinery, foundry, cache and buffer handler in the city trades here, selling what pixels use: charge, colour, shading, patches, the race feed, and the sprites the city sends beyond the margin.</p><p>Each one sets its own prices, competes for customers, takes on staff when it is busy and lets them go when it is not. Labour and rent are paid whether anything sells or not, so a quiet season is dangerous. When the cash and the patience run out, the business closes, and after a while someone new opens in the empty premises.</p>' +
+        '<p>Nothing is scripted. Demand comes from the city as it is: the weather, blackouts, smog, the Senate\u2019s laws, ships at the port, Grand Prix days and the appetite beyond the margin for Pixel City sprites. It passes down a chain, a day at a time. Raw colour comes in by sea and is refined into palettes, palettes are cast into textures, and textures and codecs are rendered into sprites. Shops need data distribution, and everyone needs an office. A good month abroad for the Render Plants is a good month for the palette refineries a few weeks later.</p><p>Since 1 December 2026 the businesses employ the city\u2019s pixels. When a business fails, its staff are laid off and join the queue at the Job Centre; a busy one takes more people on.</p>' +
         '<p>Trading days run from noon to noon, city time, and results are posted at the close. Everything is computed in your browser from the date, so every visitor sees the same market. Prices and demand are measured against the first trading day, 3 December 2025, which counts as 100.</p></div>';
     }
   };

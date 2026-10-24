@@ -6,15 +6,20 @@ Live at `https://dvexperiments.github.io/Exchange/`. Add `?at=2026-07-20T12:00` 
 
 ## What it does
 
-The city's 2,535 businesses (the Census Office's register: shops, offices, factories, warehouses and the stevedores at the docks) each set their own prices, compete for customers, take on and shed staff, run up debts and, now and then, fail. An empty premises stays empty for a while, then someone new opens there under a new name.
+**What pixels buy.** Shops sell charge (Charge Bars), fresh colours (Palette Shops), fixes for glitches (Patch Shops), a little shading (Shader Parlours), the race feed (Signal Kiosks) and staples (Refresh Pantries, Cache & Carries). Offices sell typesetting, colour consultancy, gradients, alignment, refresh services, font licences, calibration and brightness advice.
+
+**What the city makes.** Raw colour comes in by sea and is refined into palettes (Palette Refineries); palettes are cast into textures (Texture Foundries); codecs come from the Compression Works; textures and codecs are rendered into sprites (Render Plants), which sell to the city and beyond the margin. Caches, Packet Haulage and Data Distribution move it all, and Buffer Handlers load the ships at the export dock.
+
+
+The city's 2,535 businesses (the Census Office's register) make and sell what pixels use, need and want each set their own prices, compete for customers, take on and shed staff, run up debts and, now and then, fail. An empty premises stays empty for a while, then someone new opens there under a new name.
 
 Nothing is scripted. Every trading day:
 
-- **Demand** comes from the city as it is. Shops follow their district's residents, the weather (coffee in the cold, florists in spring, hardware after a storm), weekends, Grand Prix days (newsagents, and every shop in the stadium's district), blackouts, smog, traffic limits and business confidence. Screens sell abroad, on a world market that wanders and occasionally lurches. The stevedores follow the ships that call, and stop when the wind does.
-- **Demand flows down a supply chain, a day behind.** Screens need diodes and glass, diodes need phosphor, phosphor and glass need imported raw colour (dearer when ships are held outside the harbour), shops need distribution, factories need freight, the port needs storage, and every business needs offices.
+- **Demand** comes from the city as it is. Shops follow their district's residents, the weather (charge on grey, cold days, colours in spring, patches after a storm), weekends (shading), Grand Prix days (the race feed, and every shop in the stadium's district), blackouts, smog, traffic limits and business confidence. Sprites sell beyond the margin, on a market that wanders and occasionally lurches. The buffer handlers follow the ships that call, and stop when the wind does.
+- **Demand flows down a supply chain, a day behind.** Sprites need textures and codecs, textures need palettes, palettes and codecs need imported raw colour (dearer when ships are held outside the harbour), shops need data distribution, industry needs packet haulage, the export dock needs caching, and every business needs offices.
 - **Costs** are wages (the Job Centre's sector rates), power (priced from the day's mix on the grid: gas is dear, coal and the national link cheaper), inputs at today's market prices, and rent (dearer downtown). Wages and rent are paid whether anything sells or not.
-- **Each business decides** its price (its costs plus its own markup, leaning up when sold out and down when goods sit unsold), its staff (hiring when busy and profitable, letting people go when quiet or short of cash), and its quality (good years pay for improvements).
-- **Failure**: past the bank's patience (a credit line of a few weeks' costs), or more losing days than the owner will stand. Each owner's patience is different.
+- **Each business decides** its price (its costs per unit it can actually make, plus its own markup and a premium when customers are being turned away, leaning down when goods sit unsold), its staff (hiring when busy and profitable, letting people go when quiet or short of cash), and its quality (good years pay for improvements).
+- **Failure**: past the bank's patience (a credit line of a few weeks' costs), or more bad days than the owner will stand (thin losses are tolerated). Each owner's patience is different. Premises reopen sooner in a strong market and stay empty longer in a weak one.
 - **Confidence** follows profits, closures, blackouts and smog over a fortnight, and feeds back into what pixels spend. Closures can cascade.
 - **Senate laws** reach business through the grid's power mix, emissions caps (factory output), traffic limits (shops) and the construction budget (offices).
 
@@ -51,8 +56,21 @@ Trading days run 00:00 to 00:00 UTC (noon to noon, city time). Results are poste
 
 The run steps forward a day at a time, about 1 ms per trading day in a typical browser, and keeps a checkpoint every 30 days, so an earlier moment rebuilds from the nearest checkpoint.
 
-## Next: phase 2
+## Working lives (phase 2)
 
-The Job Centre reads `premisesAt`, so a closure lays its staff off and a new business hires. Careers begin on 30 November 2026 at 12:00 UTC, so phase 2 must be published before then, or given a later start date, to avoid rewriting anyone's working life.
+From 1 December 2026, when working lives begin, the Census Office's careers follow the Exchange:
 
-The Exchange also needs a building in the city.
+- a business hires in proportion to the staff it wants (a busy one takes on more than its premises' usual share);
+- a business that has closed doesn't hire;
+- when a business fails, everyone working for it is laid off, on the day, and joins the queue at the Job Centre;
+- a resident's job record shows the name of the business they actually worked for, even if the premises later changed hands.
+
+The census reads `occupantAt`, `closeOf`, `staffAt` and `openAt`. The Exchange reads only the census's register (`labour.employers()`), which doesn't depend on it, so there's no loop. Every page that shows working lives loads the Exchange after City's `census.js`; without it, the census and the Job Centre refuse to run.
+
+## What to expect
+
+In ordinary times about 4 to 5% of businesses close in a year, more in winter. When power is dear for months (as during the Senate's move from coal to gas), industry is hit first, then haulage and offices, and closures can reach a fifth of all businesses in a year. Confidence recovers as memories fade.
+
+## Still to come
+
+The Exchange needs a building in the city. The Bank of Pixel City could take over the simple credit lines.
