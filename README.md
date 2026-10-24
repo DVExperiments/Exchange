@@ -70,6 +70,10 @@ Everything feeds back into the market: rationed refineries starve the texture fo
 
 The Freight page shows the docks and the rounds, the shelves district by district, and the shipping register.
 
+## Crazes
+
+A craze for a kind of shop (Pixel City Society's tastes run) raises demand for that kind of shop in each district, by up to 60% where everyone has taken it up. The Exchange requires `society.js`; it only ever reads the tastes run, which doesn't read the Exchange.
+
 ## Working lives (phase 2)
 
 From 1 December 2026, when working lives begin, the Census Office's careers follow the Exchange:

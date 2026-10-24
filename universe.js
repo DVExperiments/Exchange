@@ -24,7 +24,7 @@
 (function (root) {
   'use strict';
 
-  const VERSION = '1.2.0';
+  const VERSION = '1.3.0';
   const MIN = 60000, H = 3600000, DAY = 86400000;
   const START = Date.UTC(2025, 11, 3); // the first trading day: the first Daily Crawl
 
@@ -57,7 +57,7 @@
   const City = () => U().city, Wx = () => U().climate, Lab = () => U().labour;
   const ok = (x) => !!(x && (!x.ready || x.ready()));
   // the register of businesses only: working lives depend on the Exchange, so asking for them here would go round in a circle
-  const ready = () => ok(City()) && ok(Wx()) && !!(Lab() && Lab().registryReady && Lab().registryReady());
+  const ready = () => ok(City()) && ok(Wx()) && !!(Lab() && Lab().registryReady && Lab().registryReady()) && !!U().society;
 
   // ---------------------------------------------------------------- what each kind of business is
   // Shares of the price of one unit (one worker-day of output) at normal prices: labour, power, inputs, rent.
@@ -143,16 +143,22 @@
     if (!cache.has(c)) { cache.set(c, fn(dayStart(c * CHUNK), dayStart(c * CHUNK + CHUNK))); if (cache.size > 40) cache.delete(cache.keys().next().value); }
     return cache.get(c);
   }
+  function byDay(cache, k, fn) {
+    if (!cache.has(k)) { cache.set(k, k < 0 ? [] : fn(dayStart(k), dayStart(k + 1))); if (cache.size > 60) cache.delete(cache.keys().next().value); }
+    return cache.get(k);
+  }
   function conditions(k) {
     const d0 = dayStart(k), C = City(), W = Wx();
     const wx = chunk(wxCache, k, (a, b) => { const out = {}; for (const d of W.historyBetween(a, b)) out[d.day] = d; return out; })[d0] || {};
     const wy = chunk(wxCache, k - 1, (a, b) => { const out = {}; for (const d of W.historyBetween(a, b)) out[d.day] = d; return out; })[d0 - DAY] || {};
-    const ch = chunk(cityCache, k, (a, b) => { const out = {}; for (const d of C.historyBetween(a, b)) out[d.day] = d; return out; })[d0] || null;
-    const shipsOn = (kk) => chunk(portCache, kk, (a, b) => { const out = {}; for (const s of C.portBetween(a, b - 1)) { const dd = s.arrive - (((s.arrive % DAY) + DAY) % DAY); (out[dd] = out[dd] || []).push(s); } return out; })[dayStart(kk)] || [];
+    const ch = byDay(cityCache, k, (a, b) => C.historyBetween(a, b))[0] || null;
+    // City's history and ships are read one day at a time and never ahead: the city's future depends on the Senate,
+    // whose elections depend on Society, which depends on this day's close
+    const shipsOn = (kk) => byDay(portCache, kk, (a, b) => C.portBetween(a, b - 1));
     const containers = shipsOn(k).filter((s) => s.type === 'container');
     const departing = [];
     for (let kk = k - 5; kk <= k; kk++) for (const s of shipsOn(kk)) if (s.type === 'container' && s.depart >= d0 && s.depart < d0 + DAY) departing.push(s);
-    const ships = chunk(portCache, k, (a, b) => { const out = {}; for (const s of C.portBetween(a, b - 1)) { const dd = s.arrive - (((s.arrive % DAY) + DAY) % DAY); (out[dd] = out[dd] || []).push(s); } return out; })[d0] || [];
+    const ships = shipsOn(k);
     let levels = {};
     try { levels = C.stateAt(d0 + 12 * H).levels || {}; } catch (e) { levels = {}; }
     // power: what the day's mix cost, against a coal-heavy normal of 40 W a unit
@@ -190,6 +196,8 @@
     f *= 1 - 0.85 * x.darkFrac[district];
     if (x.aqi > 100) f *= 1 - lo(0.18, (x.aqi - 100) / 600);
     f *= 1 - 0.05 * (x.levels['policy.trafficLimits'] || 0);
+    // a craze for a kind of shop, spreading through the district's communities (Pixel City Society)
+    const S = U().society; if (S && S.productBoost) f *= S.productBoost(district, sub, x.day);
     return f;
   }
   let STADIUM_DISTRICT = 9;
