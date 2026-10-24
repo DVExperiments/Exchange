@@ -24,7 +24,7 @@
 (function (root) {
   'use strict';
 
-  const VERSION = '1.3.0';
+  const VERSION = '1.4.0';
   const MIN = 60000, H = 3600000, DAY = 86400000;
   const START = Date.UTC(2025, 11, 3); // the first trading day: the first Daily Crawl
 
@@ -206,9 +206,9 @@
   // ---------------------------------------------------------------- the state of the market, day by day
   // Per business: the occupant now (generation), price, staff (share of the premises' capacity), cash, quality,
   // efficiency, appetite for a price war, reputation, the margin it has been making, days in loss, and what it sold.
-  const FIELDS = ['sf', 'util', 'patience', 'price', 'staff', 'cash', 'q', 'eff', 'aggr', 'rep', 'margin', 'loss', 'sales', 'rev', 'profit', 'open', 'gen', 'since', 'reopen', 'credit', 'supply'];
+  const FIELDS = ['loan', 'sf', 'util', 'patience', 'price', 'staff', 'cash', 'q', 'eff', 'aggr', 'rep', 'margin', 'loss', 'sales', 'rev', 'profit', 'open', 'gen', 'since', 'reopen', 'credit', 'supply'];
   function blank(N) { const s = {}; for (const f of FIELDS) s[f] = new Float64Array(N); return s; }
-  function clone(s) { const c = {}; for (const f of FIELDS) c[f] = s[f].slice(); for (const k of ['k', 'conf', 'importIdx', 'world', 'mkPrice', 'mkOut', 'mkUnmet', 'mkDemand', 'shopUnits', 'factoryUnits', 'revOther', 'closures7', 'cargoAvg', 'raw', 'dock', 'shelf', 'haulR', 'distR', 'bufR', 'fOn', 'exportShare']) c[k] = s[k] && s[k].slice ? s[k].slice() : s[k]; return c; }
+  function clone(s) { const c = {}; for (const f of FIELDS) c[f] = s[f].slice(); for (const k of ['k', 'conf', 'importIdx', 'world', 'mkPrice', 'mkOut', 'mkUnmet', 'mkDemand', 'shopUnits', 'factoryUnits', 'revOther', 'closures7', 'cargoAvg', 'raw', 'dock', 'shelf', 'haulR', 'distR', 'bufR', 'fOn', 'exportShare', 'bOn', 'bRate', 'bCapital', 'bDeposits', 'bMort', 'bArr', 'bRisk', 'bApp', 'bIncome', 'bWO', 'bEmp0', 'bMort0']) c[k] = s[k] && s[k].slice ? s[k].slice() : s[k]; return c; }
 
   function newOccupant(s, R, i, k, gen, mkPrice) {
     const p = R.prem[i], r = seeded('firm:' + p.id + ':' + gen);
@@ -255,7 +255,7 @@
 
   function phaseSupply(s, x, lawCap) {
     const R = RUN.R, N = R.N;
-    const { sf, util, patience, price, staff, cash, q, eff, aggr, rep, margin, loss, sales, rev, profit, open, gen, since, reopen, credit, supply, mkPrice, mkOut, mkUnmet, mkDemand } = s;
+    const { sf, util, patience, price, staff, cash, q, eff, aggr, rep, margin, loss, sales, rev, profit, open, gen, since, reopen, credit, loan, supply, mkPrice, mkOut, mkUnmet, mkDemand } = s;
     // each business's supply: staff, skill, the lights being on, the weather at the docks, the Senate's limits
     for (let i = 0; i < N; i++) {
       if (!open[i]) { supply[i] = 0; continue; }
@@ -271,7 +271,7 @@
   }
   function phaseClear(s) {
     const R = RUN.R, N = R.N;
-    const { sf, util, patience, price, staff, cash, q, eff, aggr, rep, margin, loss, sales, rev, profit, open, gen, since, reopen, credit, supply, mkPrice, mkOut, mkUnmet, mkDemand } = s;
+    const { sf, util, patience, price, staff, cash, q, eff, aggr, rep, margin, loss, sales, rev, profit, open, gen, since, reopen, credit, loan, supply, mkPrice, mkOut, mkUnmet, mkDemand } = s;
     // the market clears: customers go where quality is high and prices low, then spill over to whoever has room
     const a = new Float64Array(N);
     let shopUnits = 0, factoryUnits = 0, revOther = 0;
@@ -300,7 +300,7 @@
   }
   function phaseBooks(s, x, k, r, record, emit, dn) {
     const R = RUN.R, N = R.N;
-    const { sf, util, patience, price, staff, cash, q, eff, aggr, rep, margin, loss, sales, rev, profit, open, gen, since, reopen, credit, supply, mkPrice, mkOut, mkUnmet, mkDemand } = s;
+    const { sf, util, patience, price, staff, cash, q, eff, aggr, rep, margin, loss, sales, rev, profit, open, gen, since, reopen, credit, loan, supply, mkPrice, mkOut, mkUnmet, mkDemand } = s;
     // the books, and each business's decisions for tomorrow
     const goodsPrice = (kind) => kind === 'import' ? s.importIdx : mkPrice[R.goodsMk[kind]] / R.markets[R.goodsMk[kind]].P0;
     const inputCost = {}; // what one unit's inputs cost today, by kind of business (the same for every business of a kind)
@@ -312,6 +312,7 @@
         if (reopen[i] >= 0 && k >= reopen[i]) { // someone new takes the empty premises
           const g2 = gen[i] + 1;
           newOccupant(s, R, i, k, g2, mkPrice[p.market]);
+          if (s.bOn) { loan[i] = cash[i] * 0.8; s.bLent = (s.bLent || 0) + loan[i]; } // the Bank lends most of the start-up money
           if (record) {
             const prev = RUN.occupants[i][RUN.occupants[i].length - 1];
             RUN.occupants[i].push({ gen: g2, name: nameOf(R, i, g2), from: k, to: -1, reason: '' });
@@ -330,7 +331,8 @@
       const labour = workers * p.wage;
       const power = K.power * p.P0 * x.powerIdx * (0.3 * p.capacity * staff[i] + 0.7 * sold);
       const rent = K.rent * p.P0 * p.capacity * p.rentK;
-      const profitI = revI - labour - power - rent - unitInputs * sold;
+      const interestI = s.bOn ? bankInterest(s, i, p, K) : 0; // what the Bank charges on the overdraft and any loan
+      const profitI = revI - labour - power - rent - unitInputs * sold - interestI;
       rev[i] = revI; profit[i] = profitI; cash[i] += profitI;
       margin[i] = margin[i] * 0.93 + (revI > 0 ? profitI / revI : -1) * 0.07;
       loss[i] = profitI < -0.05 * revI ? loss[i] + 1 : hi(0, loss[i] - 2); // thin losses are tolerated; it's the bad days that count
@@ -353,11 +355,16 @@
       q[i] = clamp(q[i] + (margin[i] > 0.08 ? 0.0004 : margin[i] < -0.05 ? -0.0004 : 0), 0.7, 1.35);
       if (rep[i] < 1) rep[i] = lo(1, rep[i] + 0.008);
       // failure: past the bank's patience, or a year of losses
+      if (s.bOn) { // repay a little of any loan each day, and the Bank sets today's limit from the firm's record
+        if (loan[i] > 0) { const pay = loan[i] / 1095; loan[i] -= pay; cash[i] -= pay; }
+        credit[i] = bankLimit(s, i, p, K, k);
+      }
       if (cash[i] < -credit[i] || loss[i] > patience[i]) {
         open[i] = 0; closures++;
         // nobody rushes to open in a market that's going nowhere: the weaker demand is, the longer premises stay empty
         const health = mkDemand[p.market] / R.markets[p.market].base;
-        reopen[i] = k + 14 + Math.floor(r() * (30 + 240 * clamp(1.15 - health, 0, 0.8)));
+        reopen[i] = k + 14 + Math.floor(r() * (30 + 240 * clamp(1.15 - health, 0, 0.8)) * (s.bOn ? 1 + 1.5 * clamp(1 - s.bApp, 0, 0.85) : 1)); // no loan, no opening
+        if (s.bOn) bankWriteOff(s, i, p, k, record);
         if (record) {
           const occ = RUN.occupants[i][RUN.occupants[i].length - 1];
           occ.to = k; occ.reason = cash[i] < -credit[i] ? 'ran out of credit' : 'months of losses';
@@ -374,7 +381,7 @@
 
   function phaseRecord(s, x, k, emit, dn, at, closures, profitSum, revSum, cityMargin) {
     const R = RUN.R, N = R.N;
-    const { sf, util, patience, price, staff, cash, q, eff, aggr, rep, margin, loss, sales, rev, profit, open, gen, since, reopen, credit, supply, mkPrice, mkOut, mkUnmet, mkDemand } = s;
+    const { sf, util, patience, price, staff, cash, q, eff, aggr, rep, margin, loss, sales, rev, profit, open, gen, since, reopen, credit, loan, supply, mkPrice, mkOut, mkUnmet, mkDemand } = s;
     {
       // shortages and price wars, noticed by the Exchange's reporters (each market at most once a month)
       for (const mk of R.markets) {
@@ -530,10 +537,99 @@
       minShelf: rd(minShelf, 10), avgShelf: rd(sumShelf / 16, 10), deliveries: wanted > 0 ? rd(delivered / wanted * 100, 1) : 100, haulage: rd(s.haulR * 100, 1), distribution: rd(s.distR * 100, 1), buffers: rd(s.bufR * 100, 1), landed: landed.length, sailed: loaded.length });
   }
 
+  // ================================================================ the Bank of Pixel City
+  // Opens on 1 February 2027 and takes over the city's credit. Its rate is set on the 1st of each month from the
+  // shopping basket and business confidence. Businesses borrow on overdraft up to a limit the Bank sets from their record
+  // and its own appetite, and new businesses borrow most of their start-up money. Households borrow to buy homes, district
+  // by district. When borrowers fail, the Bank writes off what it can't recover; its capital shrinks, it marks the
+  // borrower's sector as riskier, and it lends less to everyone, which can push the next firm over. A dear rate cools
+  // spending in the shops. Before the Bank opens, businesses keep the simple credit lines they always had.
+  const BANK_OPENS = Date.UTC(2027, 1, 1);
+  const SECTORS = ['shop', 'office', 'factory', 'warehouse', 'port'];
+  const fixedOf = (p, K) => p.capacity * (p.wage + K.rent * p.P0 * p.rentK);
+  function districtStaff(s) { const R = RUN.R, out = new Float64Array(16); for (let i = 0; i < R.N; i++) if (s.open[i]) out[R.prem[i].district] += R.prem[i].capacity * s.staff[i]; return out; }
+  function bankBegin(s, k, record) {
+    const R = RUN.R, C = City(), m = C.map(Date.UTC(2026, 10, 2));
+    s.bOn = 1; s.bRate = 0.04; s.bApp = 1; s.bRisk = new Float64Array(5); s.bEmp0 = districtStaff(s);
+    s.bMort0 = new Float64Array(16); for (let d = 0; d < 16; d++) s.bMort0[d] = (m.districts[d] ? m.districts[d].residents : 0) * 2600;
+    s.bMort = s.bMort0.slice(); s.bArr = new Float64Array(16).fill(0.012);
+    let book = 0; for (let d = 0; d < 16; d++) book += s.bMort[d];
+    for (let i = 0; i < R.N; i++) if (s.open[i] && s.cash[i] < 0) book -= s.cash[i];
+    s.bCapital = book * 0.14; s.bDeposits = book * 1.05; s.bIncome = 0; s.bWO = 0;
+    if (record) RUN.events.push({ id: 'bank:opened', time: iso(BANK_OPENS + 30 * 1000), ms: BANK_OPENS + 30 * 1000, source: 'bank', type: 'bank.opened', importance: 4, data: { rate: 4 },
+      headline: 'The Bank of Pixel City opens its doors, lending at 4%' });
+  }
+  const scoreOf = (s, i, k) => clamp(0.45 + s.margin[i] * 3 + lo(1, (k - s.since[i]) / 365) * 0.25 + (s.q[i] - 1), 0, 1);
+  function bankLimit(s, i, p, K, k) { return fixedOf(p, K) * (20 + 28 * scoreOf(s, i, k)) * (0.5 + 0.5 * s.bApp) * (1 - 0.4 * s.bRisk[SECTORS.indexOf(p.sector)]); }
+  function bankInterest(s, i, p, K) {
+    const k = s.k_ || 0, od = s.cash[i] < 0 ? -s.cash[i] : 0;
+    const v = (od * (s.bRate + 0.02 + 0.02 * (1 - scoreOf(s, i, k))) + s.loan[i] * (s.bRate + 0.025)) / 365;
+    s.bIncome += v; return v;
+  }
+  function bankWriteOff(s, i, p, k, record) {
+    const wo = (s.cash[i] < 0 ? -s.cash[i] : 0) + s.loan[i] * 0.6; // a closed business's fittings cover a little of its loan
+    s.loan[i] = 0; s.bWO += wo; s.bCapital -= wo;
+    const sec = SECTORS.indexOf(p.sector);
+    s.bRisk[sec] = lo(0.6, s.bRisk[sec] + wo / hi(1, s.bCapital) * 1.2); // the Bank grows wary of the whole trade
+    if (record && wo > 60000) RUN.events.push({ id: 'bank:default:' + p.id + ':' + s.gen[i], time: iso(dayStart(k) + DAY + 20000), ms: dayStart(k) + DAY + 20000, source: 'bank', type: 'bank.default', importance: wo > 250000 ? 3 : 2,
+      data: { premises: p.id, name: nameOf(RUN.R, i, s.gen[i]), sector: p.sector, writtenOff: Math.round(wo) }, headline: 'The Bank of Pixel City writes off ' + Math.round(wo / 1000) + ',000 W lent to ' + nameOf(RUN.R, i, s.gen[i]) });
+  }
+  function bankRate(s, k, record) {
+    const d = RUN.days, now = d[k - 1], then = d[k - 91] || d[0];
+    if (!now) return;
+    const infl = (now.cpi / then.cpi - 1) * 4, conf = now.conf / 100; // inflation over the last quarter, as a yearly rate
+    const target = clamp(0.035 + 0.8 * (infl - 0.02) - 1.0 * (1 - conf), 0.005, 0.12); // prices against a nervous city
+    const step = clamp(target - s.bRate, -0.005, 0.005), old = s.bRate;
+    s.bRate = Math.floor((s.bRate + step) * 400 + 0.5) / 400; // quarter-point steps
+    if (!record) return;
+    const pct = (r) => (r * 100).toFixed(2).replace(/0$/, '').replace(/\.0$/, '') + '%';
+    const head = s.bRate > old ? 'raises its rate to ' + pct(s.bRate) : s.bRate < old ? 'cuts its rate to ' + pct(s.bRate) : 'holds its rate at ' + pct(s.bRate);
+    const why = s.bRate > old ? ', as prices in the shops rise' : s.bRate < old ? (conf < 0.95 ? ', to lift a nervous city' : ', as prices settle') : '';
+    RUN.events.push({ id: 'bank:rate:' + ymd(dayStart(k)), time: iso(dayStart(k) + 21 * H), ms: dayStart(k) + 21 * H, source: 'bank', type: 'bank.rate', importance: s.bRate !== old ? 3 : 1,
+      data: { rate: rd(s.bRate * 100, 100), was: rd(old * 100, 100), inflation: rd(infl * 100, 10) }, headline: 'The Bank of Pixel City ' + head + why });
+  }
+  function bankDay(s, x, k, record) {
+    const R = RUN.R, emp = districtStaff(s);
+    let mort = 0, newLoans = 0, wo = 0, arrearsW = 0;
+    const m2 = s.bMort.slice(), a2 = s.bArr.slice();
+    const conf = s.conf;
+    for (let d = 0; d < 16; d++) {
+      const er = s.bEmp0[d] > 0 ? emp[d] / s.bEmp0[d] : 1;
+      const demand = clamp(conf * er * (1 - 6 * (s.bRate - 0.04)) * s.bApp, 0.15, 1.8);
+      const lend = s.bMort0[d] / (25 * 365) * 1.15 * demand, repay = m2[d] / (25 * 365);
+      a2[d] += (0.01 + 0.25 * hi(0, 1 - er) + hi(0, s.bRate - 0.05) - a2[d]) / 30; // arrears follow lost jobs and a dear rate
+      const def = m2[d] * a2[d] * 0.0008, loss = def * 0.35; // the home is sold; the Bank recovers most of it
+      m2[d] += lend - repay - def; newLoans += lend; wo += loss; mort += m2[d]; arrearsW += m2[d] * a2[d];
+      s.bIncome += m2[d] * (s.bRate + 0.018) / 365;
+    }
+    s.bMort = m2; s.bArr = a2; s.bWO += wo; s.bCapital -= wo;
+    let od = 0, startup = 0, wages = 0;
+    for (let i = 0; i < R.N; i++) { if (s.open[i] && s.cash[i] < 0) od -= s.cash[i]; startup += s.loan[i]; if (s.open[i]) wages += R.prem[i].capacity * s.staff[i] * R.prem[i].wage; }
+    const book = mort + od + startup;
+    s.bDeposits += wages * 0.02 * (1.2 - conf) - s.bDeposits * 0.0004; // pixels save more when they're nervous
+    const cost = s.bDeposits * hi(0, s.bRate - 0.015) / 365 + book * 0.008 / 365;
+    s.bCapital += s.bIncome - cost;
+    const ratio = s.bCapital / hi(1, book);
+    for (let j = 0; j < 5; j++) s.bRisk[j] *= 0.996; // memories of bad debts fade
+    const was = s.bApp;
+    s.bApp = clamp((ratio - 0.05) / 0.06, 0.15, 1.2) * (0.75 + 0.25 * clamp(conf, 0.8, 1.15));
+    if (!record) return;
+    const at = dayStart(k) + DAY + 25000;
+    const ev = (type, imp, key, data, headline) => RUN.events.push({ id: 'bank:' + key + ':' + ymd(dayStart(k)), time: iso(at), ms: at, source: 'bank', type, importance: imp, data, headline });
+    if (s.bApp < 0.6 && was >= 0.6 && k - (RUN.cool.squeeze || -999) > 45) { RUN.cool.squeeze = k; ev('bank.squeeze', 3, 'squeeze', { capitalRatio: rd(ratio * 100, 10) }, 'The Bank of Pixel City tightens lending after its losses: overdraft limits are cut across the city'); }
+    if (s.bApp > 0.9 && was <= 0.9 && RUN.cool.squeeze && k - (RUN.cool.ease || -999) > 45) { RUN.cool.ease = k; ev('bank.eases', 2, 'ease', { capitalRatio: rd(ratio * 100, 10) }, 'The Bank of Pixel City is lending freely again'); }
+    if (ratio < 0.06 && k - (RUN.cool.capital || -999) > 60) { RUN.cool.capital = k; ev('bank.capital', 4, 'capital', { capitalRatio: rd(ratio * 100, 10) }, 'The Bank of Pixel City\u2019s capital falls to ' + (ratio * 100).toFixed(1) + '% of its lending, and it stops lending to anyone it can avoid'); }
+    const arrears = arrearsW / hi(1, mort);
+    if (arrears > 0.04 && k - (RUN.cool.arrears || -999) > 60) { RUN.cool.arrears = k; let worst = 0; for (let d = 1; d < 16; d++) if (a2[d] > a2[worst]) worst = d; ev('bank.arrears', 3, 'arrears', { share: rd(arrears * 100, 10), district: R.districts[worst] }, (arrears * 100).toFixed(1) + '% of home loans are in arrears, the most in ' + R.districts[worst] + ', where jobs have gone'); }
+    (RUN.bankDays = RUN.bankDays || []).push({ k, day: dayStart(k), date: ymd(dayStart(k)), rate: rd(s.bRate * 100, 100), capital: Math.round(s.bCapital), capitalRatio: rd(ratio * 100, 10), appetite: rd(s.bApp * 100, 1),
+      deposits: Math.round(s.bDeposits), mortgages: Math.round(mort), overdrafts: Math.round(od), startup: Math.round(startup), newMortgages: Math.round(newLoans), writtenOff: Math.round(s.bWO), income: Math.round(s.bIncome),
+      arrears: rd(arrears * 100, 10), districts: Array.from(m2, (v, d) => ({ mortgages: Math.round(v), arrears: rd(a2[d] * 100, 10) })), risk: Array.from(s.bRisk, (v) => rd(v * 100, 10)) });
+  }
+
   // one trading day. record: whether this is the forward run (which keeps history and events) or a rebuild.
   function step(s, record) {
     const R = RUN.R, k = s.k, x = conditions(k), r = seeded('day:' + k), N = R.N, M = R.M;
-    const { sf, util, patience, price, staff, cash, q, eff, aggr, rep, margin, loss, sales, rev, profit, open, gen, since, reopen, credit, supply, mkPrice, mkOut, mkUnmet, mkDemand } = s;
+    const { sf, util, patience, price, staff, cash, q, eff, aggr, rep, margin, loss, sales, rev, profit, open, gen, since, reopen, credit, loan, supply, mkPrice, mkOut, mkUnmet, mkDemand } = s;
     const ev = record ? RUN.events : null;
     const at = dayStart(k) + DAY; // results are posted at the close
     const emit = (type, importance, idPart, data, headline, sec) => { if (ev) ev.push({ id: 'commerce:' + idPart, time: iso(at + (sec || 0) * 1000), ms: at + (sec || 0) * 1000, source: 'commerce', type, importance, data, headline }); };
@@ -558,7 +654,7 @@
       let f;
       const sub = mk.sub;
       const mood = 0.5 + 0.5 * s.conf; // confidence moves spending, but pixels still need what they need
-      if (mk.kind === 'shop') f = shopMood(sub, x, mk.district) * mood;
+      if (mk.kind === 'shop') f = shopMood(sub, x, mk.district) * mood * (s.bOn ? clamp(1 - 3 * (s.bRate - 0.04), 0.8, 1.08) : 1); // borrowing costs reach the tills
       else if (mk.kind === 'sprites') { // orders from beyond the margin only count while the export dock has room for them
         const room = s.fOn ? clamp((RUN.F.dockCap - s.dock) / (0.25 * RUN.F.dockCap), 0, 1) : 1;
         const abroad = 0.6 * s.world * room, home = 0.4 * s.shopUnits * mood;
@@ -577,10 +673,13 @@
     }
 
     phaseSupply(s, x, lawCap);
+    if (!s.bOn && dayStart(k) >= BANK_OPENS) bankBegin(s, k, record);
+    if (s.bOn) { s.bIncome = 0; s.bWO = 0; if (new Date(dayStart(k)).getUTCDate() === 1) bankRate(s, k, record); }
     if (!s.fOn && dayStart(k) >= FREIGHT_START) freightBegin(s);
     if (s.fOn) freightLimits(s);
     const { shopUnits, factoryUnits, revOther } = phaseClear(s);
     if (s.fOn) freightMove(s, x, k, record);
+    s.k_ = k;
     const { closures, profitSum, revSum } = phaseBooks(s, x, k, r, record, emit, dn);
     // confidence: profits, closures, blackouts and smog, felt over a fortnight
     s.closures7 = s.closures7.slice(1); const c7 = new Float64Array(7); c7.set(s.closures7); c7[6] = closures; s.closures7 = c7;
@@ -592,6 +691,7 @@
     s.conf = s.conf + (target - s.conf) / 14 + (1 - s.conf) / 120;
     s.shopUnits = shopUnits / RUN.shopBase; s.factoryUnits = factoryUnits / RUN.factoryBase; s.revOther = revOther / RUN.revBase;
 
+    if (s.bOn) bankDay(s, x, k, record);
     if (record) phaseRecord(s, x, k, emit, dn, at, closures, profitSum, revSum, cityMargin);
     s.k = k + 1;
   }
@@ -735,7 +835,28 @@
     eventsBetween(from, to) { if (!ready()) return []; advance(closedDays(to)); return RUN.events.filter((e) => e.source === 'freight' && e.ms >= from && e.ms < to).map((e) => ({ id: e.id, time: e.time, source: e.source, type: e.type, importance: e.importance, data: e.data, headline: e.headline })); }
   };
 
+  // ---------------------------------------------------------------- the Bank: reading its books
+  const bankAPI = {
+    source: 'bank', startDate: ymd(BANK_OPENS), opens: BANK_OPENS, ready: () => ready(), SECTORS,
+    /** The Bank at the last close: its rate, capital, appetite, the book by kind and by district, and its biggest borrowers. */
+    stateAt(t) {
+      if (!ready() || t < BANK_OPENS + DAY) return { open: false, opens: iso(BANK_OPENS) };
+      const k = closedDays(t), R = register(), s = stateFor(k); advance(k);
+      const days = RUN.bankDays || [], d = days.filter((x) => x.k < k).slice(-1)[0];
+      if (!d) return { open: false, opens: iso(BANK_OPENS) };
+      const borrowers = [];
+      for (let i = 0; i < R.N; i++) if (s.open[i] && (s.cash[i] < 0 || s.loan[i] > 0)) borrowers.push({ premises: R.prem[i].id, name: nameOf(R, i, s.gen[i]), sector: R.prem[i].sector, district: R.districts[R.prem[i].district],
+        overdraft: Math.round(s.cash[i] < 0 ? -s.cash[i] : 0), limit: Math.round(s.credit[i]), loan: Math.round(s.loan[i]), use: s.credit[i] > 0 ? rd((s.cash[i] < 0 ? -s.cash[i] : 0) / s.credit[i] * 100, 1) : 0 });
+      borrowers.sort((a, b) => b.overdraft + b.loan - a.overdraft - a.loan);
+      return Object.assign({}, d, { open: true, asOf: iso(d.day + DAY), borrowers: borrowers.slice(0, 40), borrowerCount: borrowers.length,
+        sectors: SECTORS.map((x, j) => ({ sector: x, risk: d.risk[j] })), districts: d.districts.map((v, j) => Object.assign({ name: R.districts[j] }, v)) });
+    },
+    historyBetween(from, to) { if (!ready()) return []; advance(closedDays(to)); return (RUN.bankDays || []).filter((d) => d.day + DAY > from && d.day + DAY <= to).map((d) => Object.assign({}, d)); },
+    eventsBetween(from, to) { if (!ready()) return []; advance(closedDays(to)); return RUN.events.filter((e) => e.source === 'bank' && e.ms >= from && e.ms < to).map((e) => ({ id: e.id, time: e.time, source: e.source, type: e.type, importance: e.importance, data: e.data, headline: e.headline })); }
+  };
+
   root.PixelUniverse = root.PixelUniverse || {};
+  root.PixelUniverse.bank = bankAPI;
   root.PixelUniverse.freight = freightAPI;
   root.PixelUniverse.commerce = {
     version: VERSION, source: 'commerce', startDate: ymd(START), start: START, ready,

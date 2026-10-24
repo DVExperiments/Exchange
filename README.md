@@ -92,3 +92,15 @@ In ordinary times about 4 to 5% of businesses close in a year, more in winter. W
 ## Still to come
 
 The Exchange needs a building in the city. The Bank of Pixel City could take over the simple credit lines.
+
+## The Bank of Pixel City
+
+From 1 February 2027, the Bank of Pixel City runs in the Exchange's daily step and takes over the city's credit (before then, businesses keep the simple credit lines they always had, so nothing earlier changes):
+
+- **The rate** is set on the 1st of each month from the shopping basket's inflation over the last quarter and business confidence, in quarter-point steps, at most half a point a month. A dear rate cools spending in the shops.
+- **Overdrafts**: each business's limit is set daily from its record (margins, age, quality), the Bank's appetite and how it feels about the business's trade. Overdrafts and loans carry interest.
+- **Start-up loans**: a business opening in empty premises borrows most of its start-up money, repaid over three years. When the Bank is cautious, premises stay empty longer.
+- **Home loans**, district by district, follow confidence, the jobs a district has kept and the rate. Arrears follow lost jobs and a dear rate; homes in default are sold and most of the loan recovered.
+- **Defaults spread**: every write-off cuts the Bank's capital and marks the failed business's trade as riskier; appetite follows capital, so every limit in the city tightens. Below 6% capital it all but stops lending.
+
+`PixelUniverse.bank` (from this `universe.js`): `stateAt(t)` (rate, capital, appetite, deposits, the book by kind and district, sector risk, biggest borrowers), `historyBetween`, `eventsBetween` (source `bank`: `bank.opened`, `bank.rate`, `bank.default`, `bank.squeeze`, `bank.eases`, `bank.capital`, `bank.arrears`). The Bank's own site is at `dvexperiments.github.io/Bank/`.
