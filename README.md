@@ -104,3 +104,5 @@ From 1 February 2027, the Bank of Pixel City runs in the Exchange's daily step a
 - **Defaults spread**: every write-off cuts the Bank's capital and marks the failed business's trade as riskier; appetite follows capital, so every limit in the city tightens. Below 6% capital it all but stops lending.
 
 `PixelUniverse.bank` (from this `universe.js`): `stateAt(t)` (rate, capital, appetite, deposits, the book by kind and district, sector risk, biggest borrowers), `historyBetween`, `eventsBetween` (source `bank`: `bank.opened`, `bank.rate`, `bank.default`, `bank.squeeze`, `bank.eases`, `bank.capital`, `bank.arrears`). The Bank's own site is at `dvexperiments.github.io/Bank/`.
+
+From 1 March 2027 the Exchange reads City's glitches (corrupted and frozen districts make less, patch shops are mobbed during and for three days after, palette shops do well in a bleed, frozen districts get no deliveries, a leak at the dock eats 30% of the raw colour in store) and Society's migration (a district's shops sell to the pixels who still live there). It records staff by district each day (`staffD`), which Society's migration reads.

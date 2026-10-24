@@ -172,7 +172,20 @@
     let cargo = 0, held = 0;
     for (const s of ships) { cargo += s.type === 'container' ? 1 : s.type === 'bulk' ? 0.8 : s.type === 'tanker' ? 0.6 : 0; if (s.held && s.held >= 6 * H) held++; }
     const date = new Date(d0 + 12 * H), wd = date.getUTCDay(), month = date.getUTCMonth();
+    // glitches (City): how much of the day each district lost, and who is still patching up afterwards
+    const gSupply = new Float64Array(16).fill(1), gDeliver = new Float64Array(16).fill(1), gPatch = new Float64Array(16).fill(1), gBleed = new Float64Array(16).fill(1);
+    let leak = false;
+    if (C.glitchesBetween) for (const g of C.glitchesBetween(d0 - 3 * DAY, d0 + DAY)) {
+      const frac = clamp(((g.end < d0 + DAY ? g.end : d0 + DAY) - (g.start > d0 ? g.start : d0)) / DAY, 0, 1), d = g.district;
+      if (g.end > d0 - 3 * DAY) gPatch[d] = 1.8; // a glitch, or its aftermath: everyone needs patching
+      if (frac <= 0) continue;
+      if (g.type === 'corruption') gSupply[d] *= 1 - frac * 0.15 * g.severity;
+      else if (g.type === 'stuck') { gSupply[d] *= 1 - frac * 0.8; gDeliver[d] *= 1 - frac * 0.9; }
+      else if (g.type === 'bleed') gBleed[d] = 1.3;
+      else if (g.type === 'leak' && g.start >= d0 && g.start < d0 + DAY) leak = true;
+    }
     return {
+      glitch: { supply: gSupply, deliver: gDeliver, patch: gPatch, bleed: gBleed, leak },
       k, day: d0, date: ymd(d0), month, weekend: wd === 0 || wd === 6, gp: new Date(d0).getUTCDate() === 1,
       max: wx.max === undefined ? 18 : wx.max, rain: wx.rain || 0, gust: wx.gust || 0, sunshine: wx.sunshine === undefined ? 6 : wx.sunshine, storm: !!wx.storm || wx.cat === 'stormy',
       stormYesterday: !!wy.storm || wy.cat === 'stormy' || (wy.rain || 0) > 40,
@@ -186,8 +199,8 @@
     // charge runs low on grey, cold days; new colours sell in spring; glitches need patching after a storm; shading is
     // a weekend treat; the race feed sells on Grand Prix day; staples sell whatever happens
     if (sub === 'Charge Bar') { if (x.sunshine < 3) f *= 1.16; if (x.max < 12) f *= 1.08; if (x.weekend) f *= 1.06; }
-    else if (sub === 'Palette Shop') { f *= spring ? 1.22 : summer ? 1.08 : winter ? 0.74 : 0.95; f *= 0.9 + x.sunshine * 0.02; if (x.rain > 8) f *= 0.8; }
-    else if (sub === 'Patch Shop') { if (x.stormYesterday) f *= 1.6; if (x.weekend) f *= 1.15; }
+    else if (sub === 'Palette Shop') { f *= x.glitch.bleed[district]; f *= spring ? 1.22 : summer ? 1.08 : winter ? 0.74 : 0.95; f *= 0.9 + x.sunshine * 0.02; if (x.rain > 8) f *= 0.8; }
+    else if (sub === 'Patch Shop') { if (x.stormYesterday) f *= 1.6; if (x.weekend) f *= 1.15; f *= x.glitch.patch[district]; }
     else if (sub === 'Signal Kiosk') { if (x.gp) f *= 1.6; }
     else if (sub === 'Shader Parlour') { if (x.weekend) f *= 1.18; if (x.sunshine > 8) f *= 1.06; }
     if (x.storm) f *= sub === 'Cache & Carry' ? 0.85 : 0.6;
@@ -201,6 +214,8 @@
     return f;
   }
   let STADIUM_DISTRICT = 9;
+  // a district's shops sell to the pixels who still live there (Pixel City Society's migration, as of the day before)
+  const popOf = (d, day) => { const S = U().society; return S && S.populationAt ? S.populationAt(d, day) : 1; };
   const ELASTIC = { shop: 1.2, office: 1, sprites: 0.8, textures: 0.7, codecs: 0.7, palettes: 0.7, haulage: 0.6, cache: 0.6, distribution: 0.6, buffers: 0.4 };
 
   // ---------------------------------------------------------------- the state of the market, day by day
@@ -265,7 +280,7 @@
       if (p.kind === 'buffers' && x.portClosed) sup *= 0.15;
       if (KIND[p.kind].sector === 'factory') sup *= p.kind === 'palettes' || p.kind === 'codecs' ? lawCap - 0.04 * (x.levels['policy.emissionsCap'] || 0) : lawCap;
       sf[i] = sf[i] * 0.9 + 0.1 * (sup / (p.capacity * staff[i] * eff[i])); // how much of a full day's work the law, the weather and the lights allow
-      supply[i] = sup;
+      supply[i] = sup * x.glitch.supply[p.district];
     }
 
   }
@@ -413,12 +428,13 @@
         if (RUN.officeUn > 0.1 && k - (RUN.cool.office || -999) > 45) { RUN.cool.office = k; emit('market.shortage', 2, 'short:office:' + ymd(dayStart(k)), { market: 'Office services', unmet: rd(un * 100, 1) },
           'The city\u2019s offices are turning work away: ' + Math.round(un * 100) + '% of orders for typesetting, alignment and colour advice go unfilled', 2); } }
       let nOpen = 0, nStaff = 0;
-      for (let i = 0; i < N; i++) if (open[i]) { nOpen++; nStaff += R.prem[i].capacity * staff[i]; }
+      const staffD = new Float32Array(16);
+      for (let i = 0; i < N; i++) if (open[i]) { nOpen++; nStaff += R.prem[i].capacity * staff[i]; staffD[R.prem[i].district] += R.prem[i].capacity * staff[i]; }
       // a consumer price index: what a district's shopping basket costs, against the first day (100)
       let basket = 0, basket0 = 0;
       for (const mk of R.markets) if (mk.kind === 'shop') { basket += mk.base * mkPrice[mk.i]; basket0 += mk.base * mk.P0; }
       RUN.days.push({ k, day: dayStart(k), date: x.date, conf: rd(s.conf * 100, 10), cpi: rd(basket / basket0 * 100, 10), power: rd(x.powerIdx * 100, 1), imports: rd(s.importIdx * 100, 1), world: rd(s.world * 100, 1),
-        open: nOpen, staff: Math.round(nStaff), closures, margin: rd(cityMargin * 100, 10), revenue: Math.round(revSum), profit: Math.round(profitSum),
+        open: nOpen, staff: Math.round(nStaff), staffD, closures, margin: rd(cityMargin * 100, 10), revenue: Math.round(revSum), profit: Math.round(profitSum),
         prices: Float64Array.from(s.mkPrice), output: Float64Array.from(s.mkOut), unmet: Float64Array.from(s.mkUnmet), demand: Float64Array.from(s.mkDemand) });
       // the monthly ledger: each occupant's revenue, profit, staff and cash at the end of each calendar month
       const L = RUN.ledgerMonth || (RUN.ledgerMonth = { month: monthOf(dayStart(k)), rev: new Float64Array(N), profit: new Float64Array(N), units: new Float64Array(N), days: new Float64Array(N) });
@@ -479,12 +495,13 @@
       else if (p.kind === 'shop') supply[i] *= shelfF[p.district];
     }
   }
-  const disruption = (x, d) => (x.storm ? 0.2 : x.rain > 25 ? 0.7 : 1) * (1 - x.darkFrac[d]) * (x.gp ? (d === STADIUM_DISTRICT ? 0.5 : 0.9) : 1) * (1 - 0.06 * (x.levels['policy.trafficLimits'] || 0));
+  const disruption = (x, d) => x.glitch.deliver[d] * (x.storm ? 0.2 : x.rain > 25 ? 0.7 : 1) * (1 - x.darkFrac[d]) * (x.gp ? (d === STADIUM_DISTRICT ? 0.5 : 0.9) : 1) * (1 - 0.06 * (x.levels['policy.trafficLimits'] || 0));
   function freightMove(s, x, k, record) {
     const R = RUN.R, F = RUN.F, { mkOut, mkDemand } = s, g = R.goodsMk;
     const ratio = (kind) => (mkDemand[g[kind]] > 0 ? clamp(mkOut[g[kind]] / mkDemand[g[kind]], 0, 1.1) : 1);
     // raw colour: used up by the refineries and compression works, landed by container ships
     s.raw = hi(0, s.raw - mkOut[g.palettes] - mkOut[g.codecs]);
+    if (x.glitch.leak) s.raw *= 0.7; // a memory leak eats into the store
     const landed = [];
     for (const sh of x.containers) { const amt = lo(sh.cargo * F.rawPerTEU, hi(0, F.rawCap - s.raw)); s.raw += amt; landed.push([sh, amt]); }
     // sprites for beyond the margin go to the dock; ships sail with as much as the buffer handlers can load
@@ -654,7 +671,7 @@
       let f;
       const sub = mk.sub;
       const mood = 0.5 + 0.5 * s.conf; // confidence moves spending, but pixels still need what they need
-      if (mk.kind === 'shop') f = shopMood(sub, x, mk.district) * mood * (s.bOn ? clamp(1 - 3 * (s.bRate - 0.04), 0.8, 1.08) : 1); // borrowing costs reach the tills
+      if (mk.kind === 'shop') f = shopMood(sub, x, mk.district) * popOf(mk.district, x.day) * mood * (s.bOn ? clamp(1 - 3 * (s.bRate - 0.04), 0.8, 1.08) : 1); // borrowing costs reach the tills
       else if (mk.kind === 'sprites') { // orders from beyond the margin only count while the export dock has room for them
         const room = s.fOn ? clamp((RUN.F.dockCap - s.dock) / (0.25 * RUN.F.dockCap), 0, 1) : 1;
         const abroad = 0.6 * s.world * room, home = 0.4 * s.shopUnits * mood;
@@ -771,7 +788,7 @@
   function historyBetween(from, to) {
     if (!ready()) return [];
     const k1 = closedDays(to); advance(k1);
-    return RUN.days.filter((d) => d.day + DAY > from && d.day + DAY <= to).map((d) => ({ day: d.day, date: d.date, confidence: d.conf, cpi: d.cpi, powerIdx: d.power, importIdx: d.imports, worldIdx: d.world, open: d.open, staff: d.staff, closures: d.closures, margin: d.margin, revenue: d.revenue, profit: d.profit }));
+    return RUN.days.filter((d) => d.day + DAY > from && d.day + DAY <= to).map((d) => ({ day: d.day, date: d.date, confidence: d.conf, cpi: d.cpi, powerIdx: d.power, importIdx: d.imports, worldIdx: d.world, open: d.open, staff: d.staff, staffD: d.staffD ? Array.from(d.staffD) : null, closures: d.closures, margin: d.margin, revenue: d.revenue, profit: d.profit }));
   }
   function eventsBetween(from, to) {
     if (!ready()) return [];
