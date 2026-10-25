@@ -114,3 +114,5 @@ Each district's rent follows how many of its premises are trading and how many p
 ## Why things happen
 
 Every business keeps a running ledger, over about a month, of what it has been losing money to: power getting expensive, supplies getting dearer, customers not buying, rivals taking its customers, blackouts, glitches, failed deliveries (empty shelves, or raw colour running short), the Senate capping its output, the Bank's interest, and rising rent. When it closes, its top causes go into the event (`data.causes`: `[{ cause, label, share }]`), the premises' history and the register. Shortages carry what cut the trade's output; the Bank's bad debts carry the borrower's causes. It is explanation only: nothing it records changes what happens, so no history changes, and headlines are unchanged.
+
+**Staff who leave (from 1 September 2027).** Where wellbeing is poor (Society's needs), staff leave businesses: a business loses people, pays to replace them, and counts it among its causes ("employees left"). Each business page also names the resident who opened it (a resident of the district, chosen from the census, for display), and any start-up loan still owed.

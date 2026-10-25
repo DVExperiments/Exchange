@@ -24,7 +24,7 @@
 (function (root) {
   'use strict';
 
-  const VERSION = '1.6.0';
+  const VERSION = '1.7.0';
   const MIN = 60000, H = 3600000, DAY = 86400000;
   const START = Date.UTC(2025, 11, 3); // the first trading day: the first Daily Crawl
 
@@ -221,7 +221,7 @@
   // ---------------------------------------------------------------- the state of the market, day by day
   // Per business: the occupant now (generation), price, staff (share of the premises' capacity), cash, quality,
   // efficiency, appetite for a price war, reputation, the margin it has been making, days in loss, and what it sold.
-  const FIELDS = ['want', 'lB', 'lG', 'lL', 'lF', 'cPow', 'cInp', 'cDem', 'cCom', 'cBla', 'cGli', 'cDel', 'cLaw', 'cInt', 'cRen', 'loan', 'sf', 'util', 'patience', 'price', 'staff', 'cash', 'q', 'eff', 'aggr', 'rep', 'margin', 'loss', 'sales', 'rev', 'profit', 'open', 'gen', 'since', 'reopen', 'credit', 'supply'];
+  const FIELDS = ['want', 'lB', 'lG', 'lL', 'lF', 'cPow', 'cInp', 'cDem', 'cCom', 'cBla', 'cGli', 'cDel', 'cLaw', 'cInt', 'cRen', 'cStf', 'loan', 'sf', 'util', 'patience', 'price', 'staff', 'cash', 'q', 'eff', 'aggr', 'rep', 'margin', 'loss', 'sales', 'rev', 'profit', 'open', 'gen', 'since', 'reopen', 'credit', 'supply'];
   function blank(N) { const s = {}; for (const f of FIELDS) s[f] = new Float64Array(N); return s; }
   function clone(s) { const c = {}; for (const f of FIELDS) c[f] = s[f].slice(); for (const k of ['k', 'conf', 'importIdx', 'world', 'mkPrice', 'mkOut', 'mkUnmet', 'mkDemand', 'shopUnits', 'factoryUnits', 'revOther', 'closures7', 'cargoAvg', 'raw', 'dock', 'shelf', 'haulR', 'distR', 'bufR', 'fOn', 'exportShare', 'rentIdx', 'bOn', 'bRate', 'bCapital', 'bDeposits', 'bMort', 'bArr', 'bRisk', 'bApp', 'bIncome', 'bWO', 'bEmp0', 'bMort0']) c[k] = s[k] && s[k].slice ? s[k].slice() : s[k]; return c; }
 
@@ -269,10 +269,10 @@
   }
 
   const CAUSES = [['power', 'power got expensive'], ['supplies', 'its supplies got dearer'], ['customers', 'customers stopped buying'], ['rivals', 'rivals took its customers'],
-    ['blackouts', 'blackouts stopped work'], ['glitches', 'glitches stopped work'], ['deliveries', 'deliveries failed'], ['senate', 'the Senate capped its output'], ['interest', 'the Bank\u2019s interest'], ['rent', 'the rent went up']];
+    ['blackouts', 'blackouts stopped work'], ['glitches', 'glitches stopped work'], ['deliveries', 'deliveries failed'], ['senate', 'the Senate capped its output'], ['interest', 'the Bank\u2019s interest'], ['rent', 'the rent went up'], ['staff', 'employees left']];
   /** Why a business has been losing money lately: its top causes, each with its share. */
   function causesOf(s, i) {
-    const v = [s.cPow[i], s.cInp[i], s.cDem[i], s.cCom[i], s.cBla[i], s.cGli[i], s.cDel[i], s.cLaw[i], s.cInt[i], s.cRen[i]];
+    const v = [s.cPow[i], s.cInp[i], s.cDem[i], s.cCom[i], s.cBla[i], s.cGli[i], s.cDel[i], s.cLaw[i], s.cInt[i], s.cRen[i], s.cStf[i]];
     let tot = 0; for (const x of v) tot += x;
     if (tot <= 0) return [];
     return v.map((x, j) => ({ cause: CAUSES[j][0], label: CAUSES[j][1], share: Math.round(x / tot * 100) })).filter((c) => c.share >= 10).sort((a, b) => b.share - a.share).slice(0, 3);
@@ -672,6 +672,22 @@
       arrears: rd(arrears * 100, 10), districts: Array.from(m2, (v, d) => ({ mortgages: Math.round(v), arrears: rd(a2[d] * 100, 10) })), risk: Array.from(s.bRisk, (v) => rd(v * 100, 10)) });
   }
 
+  // ================================================================ staff who leave (from 1 September 2027)
+  // Where life is hard (Pixel City Society's wellbeing), staff leave: a business loses some of its people, pays to
+  // replace them, and records it among the reasons it is struggling ("employees left").
+  const STAFF_START = Date.UTC(2027, 8, 1);
+  function staffDay(s, x) {
+    const S = U().society, R = RUN.R, wb = new Float64Array(16);
+    for (let d = 0; d < 16; d++) { const n = S && S.needsAt ? S.needsAt(d, x.day) : null; wb[d] = n ? n.wellbeing : 0.75; }
+    for (let i = 0; i < R.N; i++) {
+      if (!s.open[i]) { s.cStf[i] += (0 - s.cStf[i]) / 30; continue; }
+      const p = R.prem[i], q = 0.01 * hi(0, 0.85 - wb[p.district]) * (s.margin[i] < 0 ? 1.5 : 1);
+      const left = q * s.staff[i], cost = left * p.capacity * p.wage * 8; // recruiting and training their replacements
+      s.staff[i] = hi(0.15, s.staff[i] - left); s.cash[i] -= cost;
+      s.cStf[i] += (cost + left * p.capacity * p.P0 * 30 - s.cStf[i]) / 30; // and a month of their work, while they're replaced
+    }
+  }
+
   // ================================================================ rents (from 1 June 2027)
   // Each district's rent follows how many of its premises are trading and how many pixels still live there. A district
   // in decline gets cheap: businesses there pay less, empty premises find takers sooner, and (in Society) cheap rents
@@ -759,6 +775,7 @@
     s.conf = s.conf + (target - s.conf) / 14 + (1 - s.conf) / 120;
     s.shopUnits = shopUnits / RUN.shopBase; s.factoryUnits = factoryUnits / RUN.factoryBase; s.revOther = revOther / RUN.revBase;
 
+    if (dayStart(k) >= STAFF_START) staffDay(s, x);
     if (dayStart(k) >= RENT_START) rentDay(s, x, k, record);
     if (s.bOn) bankDay(s, x, k, record);
     if (record) phaseRecord(s, x, k, emit, dn, at, closures, profitSum, revSum, cityMargin);
@@ -797,7 +814,7 @@
       price: rd(s.price[i], 100), marketPrice: rd(s.mkPrice[p.market], 100), relPrice: rd(s.price[i] / s.mkPrice[p.market] * 100, 1), quality: rd(s.q[i] * 100, 1),
       sales: rd(s.sales[i], 10), revenue: Math.round(s.rev[i]), profit: Math.round(s.profit[i]), margin: rd(s.margin[i] * 100, 10), cash: Math.round(s.cash[i]), cashDays: rd(cashDays, 10),
       standing: !open ? 'empty' : cashDays > 30 ? 'comfortable' : cashDays > 5 ? 'steady' : cashDays > -0.4 * s.credit[i] / fixed ? 'stretched' : 'in difficulty',
-      reopens: !open && s.reopen[i] >= 0 ? ymd(dayStart(s.reopen[i])) : null, market: R.markets[p.market].key, losingDays: s.loss[i]
+      loan: Math.round(s.loan[i]), reopens: !open && s.reopen[i] >= 0 ? ymd(dayStart(s.reopen[i])) : null, market: R.markets[p.market].key, losingDays: s.loss[i]
     };
   }
   function marketView(R, s, mk) {

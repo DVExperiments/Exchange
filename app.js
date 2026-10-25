@@ -116,7 +116,16 @@
       const ledger = b.ledger.slice().reverse().slice(0, 18).map((L) => '<tr>' + td(esc(fMonth.format(Date.parse(L.month + '-15')))) + td(L.name ? esc(L.name) : '<span class="muted">empty</span>') + td(L.days ? watts(L.revenue) : '\u2013', 1) +
         td(L.days ? watts(L.profit) : '\u2013', 1, L.profit < 0 ? 'neg' : '') + td(L.staff || '\u2013', 1) + td(L.days ? watts(L.cash) : '\u2013', 1, L.cash < 0 ? 'neg' : '') + '</tr>');
       const occ = b.history.slice().reverse().map((o) => '<tr>' + td(esc(o.name)) + td(esc(day(o.from))) + td(o.to ? esc(day(o.to)) : 'Trading') + td(esc(o.reason) + (o.causes && o.causes.length ? '<br><small>' + esc(why(o.causes)) + '</small>' : '')) + '</tr>');
-      return head(esc(b.open ? b.name : b.lastName), lede, SECTOR[b.sector] + ', ' + esc(b.districtName)) + '<dl class="facts">' + facts + '</dl>' +
+      // who opened it: a resident of the district, chosen from the Census Office's files (display only)
+      let founder = '';
+      const K = U.census;
+      if (b.open && b.generation > 0 && K && K.residentsOf) {
+        let h = 0; const key = b.premises + ':' + b.generation; for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+        const p = (K.residentsOf(b.district, Date.parse(b.since + 'T12:00:00Z'), h % 300, 1) || [])[0];
+        if (p) { const id = p.id || p, c = K.character(id);
+          founder = '<p>Opened by <a href="https://dvexperiments.github.io/City/census.html' + AT + '#/resident/' + esc(id) + '">' + esc(c ? c.name : id) + '</a>' + (b.loan > 0 ? ', who still owes the Bank of Pixel City ' + watts(b.loan) + ' on the start-up loan.' : '.') + '</p>'; }
+      }
+      return head(esc(b.open ? b.name : b.lastName), lede, SECTOR[b.sector] + ', ' + esc(b.districtName)) + founder + '<dl class="facts">' + facts + '</dl>' +
         '<h2>The books, month by month</h2>' + table([{ l: 'Month' }, { l: 'Trading as' }, { l: 'Takings', n: 1 }, { l: 'Profit', n: 1 }, { l: 'Staff', n: 1 }, { l: 'Cash at month end', n: 1 }], ledger) +
         '<h2>Who has traded here</h2>' + table([{ l: 'Business' }, { l: 'Opened' }, { l: 'Closed' }, { l: 'Why' }], occ) +
         '<p class="muted">Premises ' + esc(b.premises) + ', block ' + b.x + ', ' + b.y + ' on the <a href="https://dvexperiments.github.io/City/">city map</a>.</p>';
