@@ -110,3 +110,7 @@ From 1 March 2027 the Exchange reads City's glitches (corrupted and frozen distr
 ## Rents (from 1 June 2027)
 
 Each district's rent follows how many of its premises are trading and how many pixels still live there, moving over a season. A district in decline gets cheap: businesses there pay less (in their costs and their prices), empty premises find takers sooner, and Society's migration draws new residents to cheap districts. A full, booming district gets dear. Rents are recorded daily (`rentD` in `historyBetween`); a district whose rents fall 15% makes the news (`market.rents`).
+
+## Why things happen
+
+Every business keeps a running ledger, over about a month, of what it has been losing money to: power getting expensive, supplies getting dearer, customers not buying, rivals taking its customers, blackouts, glitches, failed deliveries (empty shelves, or raw colour running short), the Senate capping its output, the Bank's interest, and rising rent. When it closes, its top causes go into the event (`data.causes`: `[{ cause, label, share }]`), the premises' history and the register. Shortages carry what cut the trade's output; the Bank's bad debts carry the borrower's causes. It is explanation only: nothing it records changes what happens, so no history changes, and headlines are unchanged.

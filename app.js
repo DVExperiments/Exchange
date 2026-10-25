@@ -26,6 +26,8 @@
   const td = (v, n, cls) => '<td class="' + (n ? 'n ' : '') + (cls || '') + '">' + v + '</td>';
   const table = (cols, rows) => '<div class="table-wrap"><table class="data"><thead><tr>' + cols.map((c) => '<th' + (c.n ? ' class="n"' : '') + '>' + c.l + '</th>').join('') + '</tr></thead><tbody>' +
     (rows.length ? rows.join('') : '<tr><td class="muted" colspan="' + cols.length + '">Nothing yet.</td></tr>') + '</tbody></table></div>';
+  // why a business closed, from the Exchange's books
+  const why = (causes) => (causes && causes.length ? causes.map((c) => c.label + ' (' + c.share + '%)').join(', ') : '');
   const SECTOR = { shop: 'Shop', office: 'Office', factory: 'Industry', warehouse: 'Caches and haulage', port: 'Export buffer' };
   const STANDING = { comfortable: 'Comfortable', steady: 'Steady', stretched: 'Stretched', 'in difficulty': 'In difficulty', empty: 'Empty' };
   const move = (a, b) => { const d = a - b; return Math.abs(d) < 0.05 ? '<span class="flat">0.0</span>' : d > 0 ? '<span class="up">\u25b2 ' + d.toFixed(1) + '</span>' : '<span class="down">\u25bc ' + (-d).toFixed(1) + '</span>'; };
@@ -113,7 +115,7 @@
         fact('Price', b.relPrice.toFixed(0), 'market 100') + fact('Quality', b.quality.toFixed(0)) + fact('Standing', STANDING[b.standing], b.cashDays.toFixed(0) + ' days of costs in hand') : fact('Capacity', b.capacity + ' staff') + fact('Previous occupants', b.history.length);
       const ledger = b.ledger.slice().reverse().slice(0, 18).map((L) => '<tr>' + td(esc(fMonth.format(Date.parse(L.month + '-15')))) + td(L.name ? esc(L.name) : '<span class="muted">empty</span>') + td(L.days ? watts(L.revenue) : '\u2013', 1) +
         td(L.days ? watts(L.profit) : '\u2013', 1, L.profit < 0 ? 'neg' : '') + td(L.staff || '\u2013', 1) + td(L.days ? watts(L.cash) : '\u2013', 1, L.cash < 0 ? 'neg' : '') + '</tr>');
-      const occ = b.history.slice().reverse().map((o) => '<tr>' + td(esc(o.name)) + td(esc(day(o.from))) + td(o.to ? esc(day(o.to)) : 'Trading') + td(esc(o.reason)) + '</tr>');
+      const occ = b.history.slice().reverse().map((o) => '<tr>' + td(esc(o.name)) + td(esc(day(o.from))) + td(o.to ? esc(day(o.to)) : 'Trading') + td(esc(o.reason) + (o.causes && o.causes.length ? '<br><small>' + esc(why(o.causes)) + '</small>' : '')) + '</tr>');
       return head(esc(b.open ? b.name : b.lastName), lede, SECTOR[b.sector] + ', ' + esc(b.districtName)) + '<dl class="facts">' + facts + '</dl>' +
         '<h2>The books, month by month</h2>' + table([{ l: 'Month' }, { l: 'Trading as' }, { l: 'Takings', n: 1 }, { l: 'Profit', n: 1 }, { l: 'Staff', n: 1 }, { l: 'Cash at month end', n: 1 }], ledger) +
         '<h2>Who has traded here</h2>' + table([{ l: 'Business' }, { l: 'Opened' }, { l: 'Closed' }, { l: 'Why' }], occ) +
@@ -160,7 +162,7 @@
     render() {
       const t = now(), ev = X.eventsBetween(X.start, t).filter((e) => e.type === 'business.closed' || e.type === 'business.opened').reverse().slice(0, 150);
       const rows = ev.map((e) => '<tr>' + td(esc(fShort.format(Date.parse(e.time) - 1))) + td(e.type === 'business.closed' ? '<span class="down">Closed</span>' : '<span class="up">Opened</span>') +
-        td(link('business/' + e.data.premises, esc(e.data.name))) + td(esc(e.data.district)) + td(e.data.jobs, 1) + td(esc(e.data.reason || '')) + '</tr>');
+        td(link('business/' + e.data.premises, esc(e.data.name))) + td(esc(e.data.district)) + td(e.data.jobs, 1) + td(esc(e.data.reason || '') + (e.data.causes && e.data.causes.length ? '<br><small>' + esc(why(e.data.causes)) + '</small>' : '')) + '</tr>');
       return head('The register', 'Every business that has closed or opened, latest first. Jobs are the staff on the books on the day.') +
         table([{ l: 'Date' }, { l: '' }, { l: 'Business' }, { l: 'District' }, { l: 'Jobs', n: 1 }, { l: 'Why' }], rows);
     }
