@@ -24,7 +24,7 @@
 (function (root) {
   'use strict';
 
-  const VERSION = '1.7.0';
+  const VERSION = '1.8.0';
   const MIN = 60000, H = 3600000, DAY = 86400000;
   const START = Date.UTC(2025, 11, 3); // the first trading day: the first Daily Crawl
 
@@ -634,6 +634,7 @@
     RUN.events.push({ id: 'bank:rate:' + ymd(dayStart(k)), time: iso(dayStart(k) + 21 * H), ms: dayStart(k) + 21 * H, source: 'bank', type: 'bank.rate', importance: s.bRate !== old ? 3 : 1,
       data: { rate: rd(s.bRate * 100, 100), was: rd(old * 100, 100), inflation: rd(infl * 100, 10) }, headline: 'The Bank of Pixel City ' + head + why });
   }
+  const MORTGAGE_DAYS = (25 * 365.25) / 12; // 25 Pixel Years, in days
   function bankDay(s, x, k, record) {
     const R = RUN.R, emp = districtStaff(s);
     let mort = 0, newLoans = 0, wo = 0, arrearsW = 0;
@@ -642,7 +643,8 @@
     for (let d = 0; d < 16; d++) {
       const er = s.bEmp0[d] > 0 ? emp[d] / s.bEmp0[d] : 1;
       const demand = clamp(conf * er * (1 - 6 * (s.bRate - 0.04)) * s.bApp, 0.15, 1.8);
-      const lend = s.bMort0[d] / (25 * 365) * 1.15 * demand, repay = m2[d] / (25 * 365);
+      // home loans run 25 Pixel Years (about 761 days): the census's mortgages are measured on the life clock
+      const lend = s.bMort0[d] / MORTGAGE_DAYS * 1.15 * demand, repay = m2[d] / MORTGAGE_DAYS;
       a2[d] += (0.01 + 0.25 * hi(0, 1 - er) + hi(0, s.bRate - 0.05) - a2[d]) / 30; // arrears follow lost jobs and a dear rate
       const def = m2[d] * a2[d] * 0.0008, loss = def * 0.35; // the home is sold; the Bank recovers most of it
       m2[d] += lend - repay - def; newLoans += lend; wo += loss; mort += m2[d]; arrearsW += m2[d] * a2[d];
