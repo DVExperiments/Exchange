@@ -24,7 +24,7 @@
 (function (root) {
   'use strict';
 
-  const VERSION = '1.8.0';
+  const VERSION = '1.9.0';
   const MIN = 60000, H = 3600000, DAY = 86400000;
   const START = Date.UTC(2025, 11, 3); // the first trading day: the first Daily Crawl
 
@@ -842,6 +842,19 @@
     return { started: true, asOf: iso(dayStart(k)), day: d.date, confidence: d.conf, cpi: d.cpi, powerIdx: d.power, importIdx: d.imports, worldIdx: d.world, open: d.open, businesses: R.N, staff: d.staff,
       revenue: d.revenue, profit: d.profit, margin: d.margin, sectors: sec };
   }
+  /**
+   * One premises' monthly results for the months completed before t, read straight from the ledger (no rebuilding of
+   * the day's state, so it is cheap to call for many businesses): month, occupant, generation, days traded, revenue,
+   * profit, cash and whether it was open at the month's end.
+   */
+  function ledgerOf(id, t) {
+    if (!ready() || t < START + DAY) return null;
+    const i = premisesIndex(id); if (i === undefined) return null;
+    const k = closedDays(t); advance(k);
+    const R = register(), mEnd = monthOf(dayStart(k));
+    return RUN.ledger.filter((L) => L.month < mEnd).map((L) => ({ month: Math.floor(L.month / 12) + '-' + pad(L.month % 12 + 1), name: L.days[i] ? nameOf(R, i, L.gen[i]) : null, generation: L.gen[i],
+      days: L.days[i], revenue: Math.round(L.rev[i]), profit: Math.round(L.profit[i]), cash: Math.round(L.cash[i]), open: !!L.open[i] }));
+  }
   function firmsAt(t) { if (!ready() || t < START + DAY) return []; const k = closedDays(t), R = register(), s = stateFor(k); const out = []; for (let i = 0; i < R.N; i++) out.push(firmView(R, s, i, k)); return out; }
   function marketsAt(t) { if (!ready() || t < START + DAY) return []; const k = closedDays(t), R = register(), s = stateFor(k); return R.markets.map((mk) => marketView(R, s, mk)); }
   function premisesIndex(id) { const R = register(); if (!R.byId) { R.byId = {}; R.prem.forEach((p, i) => (R.byId[p.id] = i)); } return R.byId[id]; }
@@ -948,7 +961,7 @@
   root.PixelUniverse.freight = freightAPI;
   root.PixelUniverse.commerce = {
     version: VERSION, source: 'commerce', startDate: ymd(START), start: START, ready,
-    stateAt, firmsAt, marketsAt, business, premisesAt, historyBetween, eventsBetween, openAt, occupantAt, closeOf, staffAt,
+    stateAt, firmsAt, marketsAt, business, ledgerOf, premisesAt, historyBetween, eventsBetween, openAt, occupantAt, closeOf, staffAt,
     districts: () => (ready() ? register().districts : []), KIND
   };
 })(typeof window !== 'undefined' ? window : globalThis);
