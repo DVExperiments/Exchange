@@ -1,7 +1,7 @@
 /* The Pixel Exchange's pages. Reads the Exchange (and through it the city); never changes anything. Display only. */
 (function () {
   const U = window.PixelUniverse || {};
-  const X = U.commerce, F = U.freight, W = U.climate, C = U.city;
+  const X = U.commerce, F = U.freight, W = U.climate, C = U.city, S = U.shares;
   const DAY = 86400000, H = 3600000;
   const main = document.getElementById('main');
 
@@ -68,7 +68,8 @@
         '<figure class="screen board"><table><thead><tr><th>Market</th><th class="n">Price</th><th class="n">Week</th><th class="n">Demand</th><th class="n">Unfilled</th><th class="n">Trading</th></tr></thead><tbody>' + board.join('') + '</tbody></table>' +
         '<figcaption class="screen-bar"><span>Prices and demand against the first trading day (100).</span><span>Power ' + st.powerIdx + ', imports ' + st.importIdx + ', sprites abroad ' + st.worldIdx + '</span></figcaption></figure>' +
         '<dl class="facts">' + fact('Business confidence', c.toFixed(1)) + fact('Shopping basket', st.cpi.toFixed(1), 'first day 100') + fact('Trading', num(st.open), 'of ' + num(st.businesses)) +
-        fact('Staff kept on', num(st.staff)) + fact('Closed this month', closed) + fact('Opened this month', opened) + '</dl>' +
+        fact('Staff kept on', num(st.staff)) + fact('Closed this month', closed) + fact('Opened this month', opened) +
+        (S && S.ready() && S.stateAt(t).started ? fact(link('shares', 'Pixel 40'), S.stateAt(t).index.toFixed(1)) : '') + '</dl>' +
         '<div class="two-col"><section><h2>Confidence over the year</h2>' + chart(hist.map((d) => [d.date, d.confidence]), 'Business confidence') +
         '<h2>The shopping basket</h2>' + chart(hist.map((d) => [d.date, d.cpi]), 'What a district\u2019s shopping costs') + '</section>' +
         '<section><h2>From the trading floor</h2>' + news(ev.concat(fev).filter((e) => e.importance >= 2).sort((a, b) => (a.time < b.time ? -1 : 1)).reverse().slice(0, 18)) + '<p>' + link('register', 'The full register of openings and closures') + '</p></section></div>';
@@ -187,9 +188,78 @@
     }
   };
 
+
+  // ================================================================ the Pixel 40
+  // two lines on one scale: a share's price and what its business is worth
+  function chart2(points, label) {
+    if (points.length < 2) return '';
+    const w = 640, h = 170, all = []; for (const p of points) all.push(p[1], p[2]);
+    const lo = Math.min(0, ...all), hi = Math.max(...all) * 1.08 || 1;
+    const x = (i) => (i / (points.length - 1)) * (w - 8) + 4, y = (v) => h - 6 - ((v - lo) / (hi - lo)) * (h - 12);
+    const path = (j) => points.map((p, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(p[j]).toFixed(1)).join('');
+    return '<figure class="chart"><svg viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="' + esc(label) + '" preserveAspectRatio="none">' +
+      '<path d="' + path(2) + '" fill="none" stroke="var(--muted, #8496A0)" stroke-width="2" stroke-dasharray="5 4" vector-effect="non-scaling-stroke"/>' +
+      '<path d="' + path(1) + '" fill="none" stroke="currentColor" stroke-width="2.5" vector-effect="non-scaling-stroke"/></svg>' +
+      '<figcaption><span>' + esc(day(points[0][0])) + '</span><span>' + esc(label) + ' \u00b7 solid: price, dashed: worth</span><span>' + esc(day(points[points.length - 1][0])) + '</span></figcaption></figure>';
+  }
+  const SH_TYPES = /^shares\./;
+  const pctMove = (v) => (Math.abs(v) < 0.05 ? '<span class="flat">0.0%</span>' : v > 0 ? '<span class="up">\u25b2 ' + v.toFixed(1) + '%</span>' : '<span class="down">\u25bc ' + (-v).toFixed(1) + '%</span>');
+  V.shares = {
+    title: 'The Pixel 40',
+    render() {
+      if (!S || !S.ready()) return head('The Pixel 40 is closed', 'The share market needs the Exchange and Pixel City Society, and one of them could not be reached. Please try again shortly.');
+      const t = now(), st = S.stateAt(t);
+      if (!st.started) return head('The Pixel 40', 'Forty of Pixel City\u2019s largest businesses list their shares on ' + esc(new Intl.DateTimeFormat('en-NZ', { timeZone: 'UTC', day: 'numeric', month: 'long', year: 'numeric' }).format(Date.parse(S.startDate + 'T12:00:00Z'))) + ', the February Grand Prix. From then, their prices move every trading day on what the city\u2019s investors do.') + about40();
+      const listed = st.listed.filter((f) => f.listed);
+      const status = (st.indexChange >= 15 ? 'The Pixel 40 rallies' : st.indexChange <= -15 ? 'The Pixel 40 slides' : 'The Pixel 40 is quiet') +
+        (st.momentum >= 50 ? ', and the momentum traders are in charge.' : st.momentum >= 35 ? ', with the city\u2019s investors divided.' : ', and the value investors are in charge.');
+      const rows = listed.slice().sort((a, b) => b.premium - a.premium).map((f) => '<tr>' + td(link('share/' + f.premises, '<b>' + esc(f.name) + '</b>')) + td(esc(f.district)) +
+        td(f.price.toFixed(2), 1) + td(pctMove(f.change), 1) + td(f.value.toFixed(2), 1) + td((f.premium > 0 ? '+' : '') + f.premium + '%', 1, f.premium >= 50 ? 'warn' : '') + '</tr>');
+      const hist = S.historyBetween(t - 365 * DAY, t);
+      const ev = S.eventsBetween(t - 90 * DAY, t);
+      const bubbles = ev.filter((e) => e.type === 'shares.bubble').length;
+      const grid = '<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:8px 0 4px">' + st.districts.map((d) => {
+        const name = (X.districts()[d.id] || 'District ' + (d.id + 1));
+        return '<div style="padding:10px;border-radius:6px;background:rgba(224,79,255,' + (0.06 + d.momentum / 120).toFixed(2) + ')"><small>' + esc(name) + '</small><br><b>' + d.momentum + '%</b></div>';
+      }).join('') + '</div>';
+      return '<section class="page-head"><p class="kicker">The Pixel 40 at the close, ' + esc(fDate.format(cityMs(Date.parse(st.asOf)))) + ', noon city time.</p><h1 class="status">' + esc(status) + '</h1></section>' +
+        '<figure class="screen board"><table><thead><tr><th>Business</th><th>District</th><th class="n">Price</th><th class="n">Day</th><th class="n">Worth</th><th class="n">Premium</th></tr></thead><tbody>' + rows.join('') + '</tbody></table>' +
+        '<figcaption class="screen-bar"><span>Each share listed at 100 W. Worth is what value investors make of the business from a year of its results.</span><span>Sorted by premium</span></figcaption></figure>' +
+        '<dl class="facts">' + fact('Pixel 40', st.index.toFixed(1), 'listing day 1,000') + fact('Today', (st.indexChange > 0 ? '+' : '') + st.indexChange.toFixed(1)) + fact('Trading on momentum', st.momentum + '%') +
+        fact('Looking at the businesses', (100 - st.momentum) + '%') + fact('Listed', listed.length, 'of 40') + fact('Bubbles this season', bubbles) + '</dl>' +
+        '<div class="two-col"><section><h2>The Pixel 40 over the year</h2>' + chart(hist.map((d) => [d.date, d.index]), 'Pixel 40 index', 1000) +
+        '<h2>Who is chasing trends</h2>' + chart(hist.map((d) => [d.date, d.momentum]), 'Investors trading on momentum, %', 50) +
+        '<h2>District by district</h2><p class="muted">The share of each district\u2019s investors trading on momentum. Investors pick up their habits from the communities they know (Pixel City Society), and each business\u2019s shares are held mostly in its own district.</p>' + grid + '</section>' +
+        '<section><h2>From the trading floor</h2>' + news(ev.filter((e) => e.importance >= 2 && e.type !== 'shares.results').reverse().slice(0, 18)) + about40() + '</section></div>';
+    }
+  };
+  function about40() {
+    return '<h2>How the Pixel 40 works</h2><div class="prose"><p>Two kinds of investor trade every share. Value investors work out what a business is worth from a year of its results, posted on the 1st of each month, and buy when the price is below that. Momentum traders ignore the business and buy whatever has been rising.</p>' +
+      '<p>The investors are Pixel City Society\u2019s communities. Each community\u2019s mix of the two moves with whichever has been paying in its district, with what the communities it knows are doing, and against a trade that has become crowded. No share may move more than 10% in a day. A business that closes is struck off, and the next-largest sound business in its sector takes its place.</p>' +
+      '<p>The Pixel 40 reads the Exchange and Society, and nothing reads it: it changes nothing that happens in the city.</p></div>';
+  }
+  V.share = {
+    title: 'Shares',
+    render(arg) {
+      if (!S || !S.ready()) return V.shares.render();
+      const t = now(), st = S.stateAt(t), id = decodeURIComponent(arg || '');
+      const f = st.started ? st.listed.find((x) => x.premises === id) : null;
+      const hist = S.shareHistory(id, S.start, t);
+      if (!hist.length) return head('Not on the Pixel 40', 'This business has never been listed. ' + link('shares', 'See the Pixel 40') + '.');
+      const ev = S.eventsBetween(S.start, t).filter((e) => e.data && e.data.premises === id).reverse();
+      const last = hist[hist.length - 1], name = f ? f.name : (ev[0] && ev[0].data.firm) || id;
+      const peak = Math.max(...hist.map((h) => h.price)), low = Math.min(...hist.map((h) => h.price));
+      return head(esc(name), f && f.listed ? 'Listed on the Pixel 40.' : 'Struck off the Pixel 40.', link('shares', 'The Pixel 40')) +
+        '<dl class="facts">' + fact('Price', last.price.toFixed(2) + '\u00a0W') + fact('Worth', last.value.toFixed(2) + '\u00a0W') + fact('Premium', last.value ? ((last.price - last.value) / last.value * 100).toFixed(0) + '%' : '\u2013') +
+        fact('Highest', peak.toFixed(2) + '\u00a0W') + fact('Lowest', low.toFixed(2) + '\u00a0W') + fact('Since', esc(day(hist[0].date))) + '</dl>' +
+        '<div class="two-col"><section><h2>Price and worth</h2>' + chart2(hist.map((h) => [h.date, h.price, h.value]), name) + '<p>' + link('business/' + encodeURIComponent(id), 'The business on the Exchange') + '</p></section>' +
+        '<section><h2>On the trading floor</h2>' + news(ev.slice(0, 20)) + '</section></div>';
+    }
+  };
+
   // ---------------------------------------------------------------- routing
-  const ROUTES = { '': 'market', businesses: 'businesses', business: 'business', freight: 'freight', register: 'register', about: 'about' };
-  const NAV = { business: 'businesses' };
+  const ROUTES = { '': 'market', businesses: 'businesses', business: 'business', shares: 'shares', share: 'share', freight: 'freight', register: 'register', about: 'about' };
+  const NAV = { business: 'businesses', share: 'shares' };
   let unmount = null;
   function render() {
     if (unmount) { unmount(); unmount = null; }

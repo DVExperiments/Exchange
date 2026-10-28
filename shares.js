@@ -23,16 +23,17 @@
 (function (root) {
   'use strict';
 
-  const VERSION = '1.0.0';
+  const VERSION = '1.2.0';
   const H = 3600000, DAY = 86400000;
   const START = Date.UTC(2027, 1, 1); // listing day: the February Grand Prix, with the Bank
-  const LISTED = { factory: 10, shop: 8, office: 8, warehouse: 8, port: 6 }; // forty businesses, by sector
+  const LISTED = { factory: 10, shop: 10, office: 8, warehouse: 8, port: 4 }; // forty businesses, by sector
   const MAXM = 0.85; // even the keenest community keeps some investors who look at the business
   const P0 = 100; // every share lists at 100 W
   const LIMIT = 0.10; // the most a share may move in a day
   // the market's dials: how hard each kind of trader pushes, how fast investors change their minds, and what it costs
-  // a value investor each day to keep working out what businesses are worth (momentum costs nothing to follow)
-  const K = { value: 0.06, momentum: 1.1, noise: 0.012, home: 0.6, learn: 1.5, talk: 0.04, settle: 0.02, memory: 0.94, mult: 7, cost: 0.0008 };
+  // a value investor each day to keep working out what businesses are worth (momentum costs nothing to follow), and how
+  // much a crowded trade puts investors off: the more of the city chasing trends, the less there is in it for the next
+  const K = { value: 0.06, momentum: 1.1, noise: 0.012, home: 0.6, learn: 1.5, talk: 0.04, settle: 0.02, memory: 0.94, mult: 7, cost: 0.0008, crowd: 0.05 };
 
   function rng(a) {
     return function () {
@@ -71,11 +72,16 @@
     for (let j = rows.length - 1; j >= 0 && n < 12; j--) { const L = rows[j]; if (!L.days || L.generation !== last.generation) break; p += L.profit * 30 / L.days; n++; }
     return { open: last.open, generation: last.generation, name: last.name, cash: last.cash, profit: n ? p / n : 0 };
   }
-  // the largest sound businesses in a sector, not already listed: comfortable ones first, then by size
-  function candidates(firms, sector, taken) {
-    const sound = (f) => (f.standing === 'comfortable' ? 1 : 0);
-    return firms.filter((f) => f.open && f.sector === sector && !taken.has(f.premises))
-      .sort((a, b) => sound(b) - sound(a) || b.capacity - a.capacity || (a.premises < b.premises ? -1 : 1));
+  // the most valuable sound businesses in a sector that may list: comfortable ones first, then by what they are worth
+  // (cash and a year of results). The Pixel 40 never lists two businesses of the same name, nor more than six from one
+  // district, so it stays readable and spread across the city
+  const PER_DISTRICT = 6;
+  function candidates(firms, sector, listed, t) {
+    const sound = (f) => (f.standing === 'comfortable' ? 1 : 0), names = new Set(), perD = {};
+    for (const g of listed) { names.add(g.name); perD[g.district] = (perD[g.district] || 0) + 1; }
+    const xs = firms.filter((f) => f.open && f.sector === sector && !names.has(f.name) && (perD[f.district] || 0) < PER_DISTRICT);
+    const val = {}; for (const f of xs) { const m = lastMonth(f.premises, t); val[f.premises] = m ? worth(m.cash, m.profit) : 0; }
+    return xs.sort((a, b) => sound(b) - sound(a) || val[b.premises] - val[a.premises] || (a.premises < b.premises ? -1 : 1));
   }
   function listFirm(f, slot, t) {
     const m = lastMonth(f.premises, t), v = worth(m.cash, m.profit), floor = 30 * f.capacity * 30, total = v > floor ? v : floor;
@@ -84,9 +90,9 @@
   let LIST = null;
   function listing() {
     if (LIST) return LIST;
-    const firms = Com().firmsAt(START), out = [], taken = new Set();
+    const firms = Com().firmsAt(START), out = [];
     for (const sector of Object.keys(LISTED))
-      for (const f of candidates(firms, sector, taken).slice(0, LISTED[sector])) { taken.add(f.premises); out.push(listFirm(f, out.length, START)); }
+      for (let n = 0; n < LISTED[sector]; n++) { const f = candidates(firms, sector, out, START)[0]; if (!f) break; out.push(listFirm(f, out.length, START)); }
     LIST = out;
     return LIST;
   }
@@ -121,11 +127,10 @@
 
     // results day: an empty place in the Pixel 40 goes to the next-largest sound business in its sector
     if (k > 0 && firstOfMonth(day) && L.some((f) => !RUN.live[f.i])) {
-      const firms = Com().firmsAt(day), taken = new Set(L.filter((f) => RUN.live[f.i]).map((f) => f.premises));
+      const firms = Com().firmsAt(day);
       for (const g of L.slice()) {
         if (RUN.live[g.i]) continue;
-        const f = candidates(firms, g.sector, taken)[0]; if (!f) continue;
-        taken.add(f.premises);
+        const f = candidates(firms, g.sector, L.filter((x) => RUN.live[x.i]), day)[0]; if (!f) continue;
         const capBefore = capOf();
         const nf = listFirm(f, g.i, day); L[g.i] = nf; RUN.log.push({ k, f: nf });
         RUN.live[g.i] = 1; RUN.price[g.i] = P0; RUN.value[g.i] = P0; RUN.hist[g.i] = [P0, P0, P0, P0, P0];
@@ -208,10 +213,10 @@
     // investors change their minds: towards whichever way has been paying in their district, towards what the
     // communities they know are doing, and slowly back to their old habits
     for (let d = 0; d < 16; d++) if (cnt[d]) { RUN.perfM[d] = RUN.perfM[d] * K.memory + gainM[d] / cnt[d]; RUN.perfV[d] = RUN.perfV[d] * K.memory + gainV[d] / cnt[d] - K.cost; }
-    const net = RUN.net, m2 = RUN.m.slice();
+    const net = RUN.net, m2 = RUN.m.slice(), crowdNow = mixOf(0).city;
     let cityM = 0, cityV = 0; for (let d = 0; d < 16; d++) { cityM += RUN.perfM[d] / 16; cityV += RUN.perfV[d] / 16; }
     for (const c of net.communities) {
-      const d = c.district, edge = cnt[d] ? RUN.perfM[d] - RUN.perfV[d] : cityM - cityV;
+      const d = c.district, edge = (cnt[d] ? RUN.perfM[d] - RUN.perfV[d] : cityM - cityV) - K.crowd * (crowdNow - 0.3);
       let s = 0, w = 0; for (const t of net.ties[c.id]) { s += t.weight * RUN.m[t.id]; w += t.weight; }
       const x = RUN.m[c.id] + K.learn * edge * RUN.m[c.id] * (1 - RUN.m[c.id]) + K.talk * ((w ? s / w : RUN.m[c.id]) - RUN.m[c.id]) + K.settle * (RUN.base[c.id] - RUN.m[c.id]);
       m2[c.id] = clamp(x, 0.03, MAXM);

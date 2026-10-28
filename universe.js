@@ -24,7 +24,7 @@
 (function (root) {
   'use strict';
 
-  const VERSION = '1.9.0';
+  const VERSION = '1.10.0';
   const MIN = 60000, H = 3600000, DAY = 86400000;
   const START = Date.UTC(2025, 11, 3); // the first trading day: the first Daily Crawl
 
@@ -216,6 +216,9 @@
   let STADIUM_DISTRICT = 9;
   // a district's shops sell to the pixels who still live there (Pixel City Society's migration, as of the day before)
   const popOf = (d, day) => { const S = U().society; return S && S.populationAt ? S.populationAt(d, day) : 1; };
+  // From the December 2026 Grand Prix, a factory buys the inputs each unit needs whatever they cost: textures, codecs and
+  // palettes answer to what is made from them, and barely to their own price. (Before then, as it was.)
+  const CHAIN_START = Date.UTC(2026, 11, 1), CHAIN_ELASTIC = { textures: 0.2, codecs: 0.2, palettes: 0.2 };
   const ELASTIC = { shop: 1.2, office: 1, sprites: 0.8, textures: 0.7, codecs: 0.7, palettes: 0.7, haulage: 0.6, cache: 0.6, distribution: 0.6, buffers: 0.4 };
 
   // ---------------------------------------------------------------- the state of the market, day by day
@@ -223,7 +226,7 @@
   // efficiency, appetite for a price war, reputation, the margin it has been making, days in loss, and what it sold.
   const FIELDS = ['want', 'lB', 'lG', 'lL', 'lF', 'cPow', 'cInp', 'cDem', 'cCom', 'cBla', 'cGli', 'cDel', 'cLaw', 'cInt', 'cRen', 'cStf', 'loan', 'sf', 'util', 'patience', 'price', 'staff', 'cash', 'q', 'eff', 'aggr', 'rep', 'margin', 'loss', 'sales', 'rev', 'profit', 'open', 'gen', 'since', 'reopen', 'credit', 'supply'];
   function blank(N) { const s = {}; for (const f of FIELDS) s[f] = new Float64Array(N); return s; }
-  function clone(s) { const c = {}; for (const f of FIELDS) c[f] = s[f].slice(); for (const k of ['k', 'conf', 'importIdx', 'world', 'mkPrice', 'mkOut', 'mkUnmet', 'mkDemand', 'shopUnits', 'factoryUnits', 'revOther', 'closures7', 'cargoAvg', 'raw', 'dock', 'shelf', 'haulR', 'distR', 'bufR', 'fOn', 'exportShare', 'rentIdx', 'bOn', 'bRate', 'bCapital', 'bDeposits', 'bMort', 'bArr', 'bRisk', 'bApp', 'bIncome', 'bWO', 'bEmp0', 'bMort0']) c[k] = s[k] && s[k].slice ? s[k].slice() : s[k]; return c; }
+  function clone(s) { const c = {}; for (const f of FIELDS) c[f] = s[f].slice(); for (const k of ['k', 'conf', 'importIdx', 'world', 'mkPrice', 'mkOut', 'mkUnmet', 'mkDemand', 'shopUnits', 'factoryUnits', 'revOther', 'closures7', 'cargoAvg', 'raw', 'dock', 'shelf', 'rounds', 'haulR', 'distR', 'bufR', 'fOn', 'exportShare', 'rentIdx', 'bOn', 'bRate', 'bCapital', 'bDeposits', 'bMort', 'bArr', 'bRisk', 'bApp', 'bIncome', 'bWO', 'bEmp0', 'bMort0']) c[k] = s[k] && s[k].slice ? s[k].slice() : s[k]; return c; }
 
   function newOccupant(s, R, i, k, gen, mkPrice) {
     const p = R.prem[i], r = seeded('firm:' + p.id + ':' + gen);
@@ -335,9 +338,14 @@
     const inputCost = {}; // what one unit's inputs cost today, by kind of business (the same for every business of a kind)
     for (const kind in KIND) { let c = 0; for (const [g, share] of KIND[kind].inputs) c += share * goodsPrice(g); inputCost[kind] = c; }
     let closures = 0, profitSum = 0, revSum = 0;
+    // From the December 2026 Grand Prix, would-be owners look at the books as well as the customers: while the
+    // businesses already in a market are losing money on average, nobody opens another one there for another month
+    const choosy = dayStart(k) >= CHAIN_START, mkMargin = new Float64Array(R.markets.length), mkN = new Float64Array(R.markets.length);
+    if (choosy) for (let j = 0; j < N; j++) if (open[j]) { mkMargin[R.prem[j].market] += margin[j]; mkN[R.prem[j].market]++; }
     for (let i = 0; i < N; i++) {
       const p = R.prem[i], K = KIND[p.kind];
       if (!open[i]) {
+        if (choosy && reopen[i] >= 0 && k >= reopen[i] && mkN[p.market] && mkMargin[p.market] / mkN[p.market] < 0) { reopen[i] = k + 30; continue; }
         if (reopen[i] >= 0 && k >= reopen[i]) { // someone new takes the empty premises
           const g2 = gen[i] + 1;
           newOccupant(s, R, i, k, g2, mkPrice[p.market]);
@@ -498,17 +506,19 @@
     const base = (kind) => R.markets[R.goodsMk[kind]].base;
     F.rawNeed = base('palettes') + base('codecs'); // one unit of raw colour per unit refined or compressed
     F.exportNormal = 0.6 * base('sprites');
-    // what an ordinary half-year of container ships carries, to size a TEU of cargo
-    let teu = 0; for (const sh of C.portBetween(START, START + 180 * DAY)) if (sh.type === 'container') teu += sh.cargo;
-    F.teuPerDay = teu / 180;
-    F.rawPerTEU = F.rawNeed / F.teuPerDay;
-    F.exportPerTEU = F.exportNormal / F.teuPerDay * 1.2;
+    // what an ordinary year of container ships carries, to size a TEU of cargo, with a quarter to spare each way so
+    // that only storms and held ships, not ordinary days, leave the city short
+    let teu = 0; for (const sh of C.portBetween(START, START + 365 * DAY)) if (sh.type === 'container') teu += sh.cargo;
+    F.teuPerDay = teu / 365;
+    F.rawPerTEU = F.rawNeed / F.teuPerDay * 1.25;
+    F.exportPerTEU = F.exportNormal / F.teuPerDay * 1.25;
     F.rawCap = 16 * F.rawNeed; F.dockCap = 14 * F.exportNormal;
     return F;
   }
   function freightBegin(s) {
     const F = RUN.F;
-    s.fOn = 1; s.raw = 10 * F.rawNeed; s.dock = 3 * F.exportNormal;
+    s.fOn = 1; s.raw = 16 * F.rawNeed; s.dock = 0.5 * F.exportNormal; // the raw store opens about as full as it settles, the export dock nearly clear
+    s.rounds = new Float64Array(16).fill(1.15); // each district's delivery rounds: room for 15% more than a normal day
     const sh = new Float64Array(16); for (let d = 0; d < 16; d++) sh[d] = 2 * F.shopNeed[d]; s.shelf = sh;
   }
   // what can be made and sold today, given what is in stock
@@ -536,7 +546,10 @@
     // sprites for beyond the margin go to the dock; ships sail with as much as the buffer handlers can load
     s.dock += mkOut[g.sprites] * s.exportShare;
     const loaded = [];
-    for (const sh of x.departing) { const amt = lo(s.dock, sh.cargo * F.exportPerTEU * clamp(s.bufR, 0.3, 1)); s.dock -= amt; loaded.push([sh, amt]); }
+    // the buffer handlers only hold ships up when they fall well short (as haulage does for the refineries); before
+    // the December 2026 Grand Prix's freight began this rule did not exist
+    const bufF = clamp(s.bufR + 0.15, 0.3, 1);
+    for (const sh of x.departing) { const amt = lo(s.dock, sh.cargo * F.exportPerTEU * bufF); s.dock -= amt; loaded.push([sh, amt]); }
     // the shops' shelves: sold from, then restocked on the day's rounds, as far as the rounds can reach
     const sold = new Float64Array(16), deliv = new Float64Array(16), want = new Float64Array(16);
     for (const mk of R.markets) if (mk.kind === 'shop') sold[mk.district] += mkOut[mk.i];
@@ -544,8 +557,12 @@
     for (let d = 0; d < 16; d++) {
       sh2[d] = hi(0, sh2[d] - sold[d]);
       want[d] = hi(0, 2 * F.shopNeed[d] - sh2[d]); // shops keep about two days on the shelves
-      deliv[d] = lo(want[d], 1.15 * F.shopNeed[d] * clamp(s.distR, 0, 1.1) * disruption(x, d));
+      deliv[d] = lo(want[d], s.rounds[d] * F.shopNeed[d] * clamp(s.distR, 0, 1.1) * disruption(x, d));
       sh2[d] += deliv[d];
+      // the distributors adapt: when a district's shelves keep running low they add rounds (night runs, bigger vans),
+      // a little each day, and let them go once the shelves are full again
+      if (sh2[d] < 1.5 * F.shopNeed[d]) s.rounds[d] = lo(1.7, s.rounds[d] + 0.004);
+      else if (sh2[d] >= 1.95 * F.shopNeed[d]) s.rounds[d] = hi(1.15, s.rounds[d] - 0.001);
     }
     s.shelf = sh2;
     s.haulR = ratio('haulage'); s.distR = ratio('distribution'); s.bufR = ratio('buffers');
@@ -754,7 +771,7 @@
       else if (mk.kind === 'buffers') f = portR;
       else f = s.revOther * mood * (1 + 0.03 * (x.levels['policy.constructionBudget'] || 0)) * (x.weekend ? 0.55 : 1.15) * (1 - 0.6 * x.darkFrac[7]);
       // dearer markets sell less: how much depends on whether pixels can do without it
-      const rel = clamp(mkPrice[mk.i] / mk.P0, 0.4, 3), E = ELASTIC[mk.kind];
+      const rel = clamp(mkPrice[mk.i] / mk.P0, 0.4, 3), E = dayStart(k) >= CHAIN_START && CHAIN_ELASTIC[mk.kind] !== undefined ? CHAIN_ELASTIC[mk.kind] : ELASTIC[mk.kind];
       mkDemand[mk.i] = mk.base * f * clamp(1 / (1 + E * (rel - 1)), 0.3, 1.6) * (0.97 + r() * 0.06);
     }
 
