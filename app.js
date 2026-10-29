@@ -7,7 +7,7 @@
 
   const q = new URLSearchParams(location.search);
   const at = q.get('at');
-  const parsed = at ? Date.parse(at.length <= 16 ? at + ':00Z' : at) : NaN;
+  const parsed = at ? Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(at) ? at + 'T00:00:00Z' : at.length <= 16 ? at + ':00Z' : at) : NaN;
   const offset = isNaN(parsed) ? 0 : parsed - Date.now();
   const now = () => Date.now() + offset;
   const AT = isNaN(parsed) ? '' : '?at=' + encodeURIComponent(at);
@@ -236,7 +236,7 @@
   function about40() {
     return '<h2>How the Pixel 40 works</h2><div class="prose"><p>Two kinds of investor trade every share. Value investors work out what a business is worth from a year of its results, posted on the 1st of each month, and buy when the price is below that. Momentum traders ignore the business and buy whatever has been rising.</p>' +
       '<p>The investors are Pixel City Society\u2019s communities. Each community\u2019s mix of the two moves with whichever has been paying in its district, with what the communities it knows are doing, and against a trade that has become crowded. No share may move more than 10% in a day. A business that closes is struck off, and the next-largest sound business in its sector takes its place.</p>' +
-      '<p>The Pixel 40 reads the Exchange and Society, and nothing reads it: it changes nothing that happens in the city.</p></div>';
+      '<p>From 1 March 2027 the market reaches the city in one way only: on results day, a business whose shares trade at least 40% above what it is worth sells new shares, no more than once in six months, and the money is in its accounts the next day. Nothing else about share prices changes what happens in Pixel City.</p></div>';
   }
   V.share = {
     title: 'Shares',
